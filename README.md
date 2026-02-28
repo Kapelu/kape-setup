@@ -28,7 +28,7 @@
 
 
 
-### *** 🧹 node-clean***
+### ***🧹 node-clean***
 
 Herramienta CLI interactiva para localizar y eliminar `node_modules` y `.next` dentro de un árbol de directorios. Se pueden agregar más carpetas o archivos.
 
