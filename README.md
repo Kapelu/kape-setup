@@ -1,5 +1,5 @@
 <div align="center">
-<p style='margin: 0 0 2rem; font-size: 2.5rem;'>script-setup</p >
+<h1 style='margin: 0 0 2rem; font-size: 2.5rem;'>script-setup</h1 >
 </div>
 <div align="center">
 
@@ -24,7 +24,7 @@
 
 <div align="center">
 
-# 📦 Modulos
+## 📦 Modulos
 
 </div>
 
