@@ -6,7 +6,7 @@
 ![Bash](https://img.shields.io/badge/Bash-4%2B-blue)
 ![Ubuntu](https://img.shields.io/badge/Ubuntu-22.04%2B-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
-![Version](https://img.shields.io/badge/version-1.0.0-informational)
+![Version](https://img.shields.io/badge/version-3.0-informational)
 
 </div>
 
