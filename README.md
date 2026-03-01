@@ -49,7 +49,7 @@ TARGETS=("node_modules" ".next")()
 ```
 
 ------------------------------------------------------------------------
-### ***✅ Motor de prompts de Bash optimizado (.bashrc)***
+### ***⚙️ Motor de prompts de Bash optimizado (.bashrc)***
 
 El archivo implementa un prompt dinámico optimizado con cacheo inteligente, orientado a entornos de desarrollo Node/Next.js.
 
@@ -87,6 +87,29 @@ El archivo implementa un prompt dinámico optimizado con cacheo inteligente, ori
 
 #### Está más cerca de un mini framework de prompt que de un `.bashrc` común‼️
 </div>
+
+------------------------------------------------------------------------
+
+### ***🛡️ protect-main.json***
+
+Es un archivo `.json` que protege el main branch de un repositorio git, evitando pushes accidentales de terceroas.
+
+### <u>Características:</u>
+
+- `Estado de ejecución` Activo
+- `Lista de omisión` Repository admin
+- `Criterio de selección de rama` Default
+- `Restrict updates` Permitir que solo los usuarios con permisos de omisión actualicen las referencias coincidentes.
+- `Restrict deletions` Permitir que solo los usuarios con permisos de omisión eliminen referencias coincidentes.
+- `Require linear history` Evita que las confirmaciones de fusión se envíen a referencias coincidentes.
+- `Require a pull request before merging` Requerir que todas las confirmaciones se realicen en una rama distinta a la de destino y se envíen mediante una solicitud de extracción antes de que se puedan fusionar.
+- `Require conversation resolution before merging` Todas las conversaciones sobre el código deben resolverse antes de que se pueda fusionar una solicitud de extracción.
+- `Block force pushes` Evita que los usuarios con acceso de envío fuercen el envío a los árbitros.
+
+### <u>Uso</u>:
+
+Luego en el repositorio de `github` ir a `Settings` → `Branches` → `Add rule` → `Import` → `Upload JSON` y agregar → ***protect-main.json*** .
+
 ------------------------------------------------------------------------
 
 Lorem ipsum dolor sit amet, consectetuer adipiscing elit. Aenean commodo ligula eget dolor. Aenean massa. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Donec quam felis, ultricies nec, pellentesque eu, pretium quis, sem. Nulla consequat massa quis enim. Donec pede justo, fringilla vel, aliquet nec, vulputate eget, arcu. In enim justo, rhoncus ut, imperdiet a, venenatis vitae, justo. Nullam dictum felis eu pede mollis pretium. Integer tincidunt. Cras dapibus. Vivamus elementum semper nisi. Aenean vulputate eleifend tellus. Aenean leo ligula, porttitor eu, consequat vitae, eleifend ac, enim. Aliquam lorem ante, dapibus in, viverra quis, feugiat a, tellus. Phasellus viverra nulla ut metus varius laoreet. Quisque rutrum. Aenean imperdiet. Etiam ultricies nisi vel augue. Curabitur ullamcorper ultricies nisi. Nam eget dui. Etiam rhoncus. Maecenas tempus, tellus eget condimentum rhoncus, sem quam semper libero, sit amet adipiscing sem neque sed ipsum. Nam quam nunc, blandit vel, luctus pulvinar, hendrerit id, lorem. Maecenas nec odio et ante tincidunt tempus. Donec vitae sapien ut libero venenatis faucibus. Nullam quis ante. Etiam sit amet orci eget eros faucibus tincidunt. Duis leo. Sed fringilla mauris sit amet nibh. Donec sodales sagittis magna. Sed consequat, leo eget bibendum sodales, augue velit cursus nunc,

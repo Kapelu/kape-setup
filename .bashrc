@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 # ╔════════════════════════════════════════════════════╗
 # │ .bashrc – Configuración de entorno personal        │
 # │ Versión: 3.0                                       │
@@ -23,10 +24,10 @@ case ":$PATH:" in
   *) export PATH="$PATH:$SCRIPT_DIR" ;;
 esac
 
-# Hacer ejecutables los existentes
+# Hacer ejecutables los existentes en script
 find "$SCRIPT_DIR" -type f -exec chmod +x {} \;
 
-# Vigilar nuevos archivos
+# Vigilar nuevos archivos para hacerlos ejecutables automáticamente
 if command -v inotifywait >/dev/null 2>&1 && [ -z "$__SCRIPTS_WATCH_STARTED" ]; then
   export __SCRIPTS_WATCH_STARTED=1
   inotifywait -m -e create --format '%f' "$SCRIPT_DIR" 2>/dev/null |
@@ -66,7 +67,7 @@ detect_package_manager() {
   echo "npm"
 }
 
-# Función que instala pnpm globalmente si detecta un pnpm-lock.yaml pero no encuentra pnpm en el PATH	
+# Función que instala pnpm globalmente si detecta un pnpm-lock.yaml pero no encuentra pnpm en el PATH 
 # =============================================================================
 ensure_pnpm() {
   [ ! -x "$(command -v pnpm)" ] && [ -f pnpm-lock.yaml ] && {
