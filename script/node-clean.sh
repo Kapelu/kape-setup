@@ -16,8 +16,6 @@ set -euo pipefail
 # TARGETS     → Carpetas objetivo a buscar
 # NODE_DIRS   → Resultado de búsqueda
 # DRY_RUN     → Flag de simulación
-# TERM_WIDTH  → Ancho de terminal
-# TERM_HEIGHT → Alto de terminal
 # =============================================================================
 
 TARGETS=("node_modules" ".next")
