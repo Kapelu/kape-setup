@@ -1,291 +1,427 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # ╔════════════════════════════════════════════════════╗
 # │ setup – Instalación y configuraciones Post-Install │
-# │ Versión: 3.5                                       │
+# │ Versión: 8.0 Refactor                              │
 # │ Autor: Daniel Calderon - Kapelu                    │
-# │ Fecha: 16/10/2023                                  │
-# │ WebSite: https://danielcalderon.vercel.app/        │
 # ╚════════════════════════════════════════════════════╝
 
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+VERSION="8.0"
 USUARIO=$(whoami)
 HOSTNAME=$(hostname)
 FECHA=$(date "+%d-%m-%Y")
 HORA=$(date "+%H:%M:%S")
-bgris='\033[40m'
-verde='\033[33m'
-amarillo='\033[34m'
-azul='\033[35m'
-n='\033[1m'
-blue="\e[0;36m"
-green="\e[0;32m"
-red_bg="\e[1;41m"
-yellow="\e[0;33m"
-close_color="\e[0m"
-reset='\033[0m'
 
-show_log() {
-  echo -e "\n-----> $1"
-}
-show_info_log() {
-  echo -e "\n$blue-----> $1 $close_color"
-}
-show_success_log() {
-  echo -e "\n$green-----> $1 $close_color"
-}
-show_warning_log() {
-  echo -e "\n$yellow-----> $1 $close_color"
-}
-show_error_log() {
-  echo -e "\n$red_bg ERROR: $1 $close_color"
+APT_BASE=( wget gpg apt-transport-https chrome-gnome-shell gnome-browser-connector font-manager net-tools )
+
+APT_DEV_TOOLS=( lsd neofetch dialog git curl build-essential usb-creator-gtk gparted )
+
+SNAP_DEV_TOOLS=( proton-pass proton-mail sublime-text jdownloader2 vlc telegram-desktop )
+clear
+### ───────────────────────────────
+### COLORES ANSI UNIFICADOS
+### ───────────────────────────────
+declare -A COLOR=(
+  [reset]='\e[0m'
+  [bold]='\e[1m'
+  [italic]='\e[3m'
+  [warn]='\e[31;47m'
+  [warn_alt]='\e[31;40m'
+  [green]='\e[32m'
+  [yellow]='\e[33m'
+  [blue]='\e[34m'
+  [magenta]='\e[35m'
+  [cyan]='\e[36m'
+  [gray]='\e[90m'
+)
+
+########################################
+# DETECCIÓN DE DISTRO
+########################################
+
+detect_distro() {
+
+  if [[ -f /etc/os-release ]]; then
+    . /etc/os-release
+  else
+    echo "No se puede detectar la distro"
+    exit 1
+  fi
+
+  case "$ID" in
+    ubuntu|debian|linuxmint)
+      DISTRO=$ID
+      ;;
+    *)
+      echo "⚠️  WARNING"
+      echo "Este script solo soporta:"
+      echo "Ubuntu / Debian / Linux Mint"
+      echo "Distro detectada: $ID"
+      exit 1
+      ;;
+  esac
+
 }
 
-show_info_input() {
-  echo -ne "\n$blue-----> $1 $close_color"
+### ───────────────────────────────
+### FUNCIONES ÚTILES
+### ───────────────────────────────
+print_banner() {
+  local msg="$1"
+  echo -e "${COLOR[green]}════════════════════════════════════════════════════${COLOR[reset]}"
+  echo -e "$msg"
+  echo -e "${COLOR[green]}════════════════════════════════════════════════════${COLOR[reset]}"
 }
+sleep 3
+
+command_exists() { command -v "$1" >/dev/null 2>&1; }
+
+pkg_installed() { dpkg -s "$1" >/dev/null 2>&1; }
+
+snap_installed() { snap list "$1" >/dev/null 2>&1; }
+
+alerta_critica() {
+  for i in {1..6}; do
+    echo -ne "${COLOR[warn]}❌ ERROR EN LÍNEA $1${COLOR[reset]}\r"
+    sleep 0.4
+    echo -ne "${COLOR[warn_alt]}❌ ERROR EN LÍNEA $1${COLOR[reset]}\r"
+    sleep 0.4
+  done
+  echo
+}
+trap 'alerta_critica $LINENO; exit 1' ERR
+
+########################################
+# INSTALADOR APT
+########################################
+
+install_apt() {
+
+local to_install=()
+
+for pkg in "$@"; do
+  if pkg_installed "$pkg"; then
+	clear
+    echo -e "${COLOR[magenta]}✔ $pkg ya instalado${COLOR[reset]}"
+  else
+    to_install+=("$pkg")
+  fi
+done
+
+if [[ ${#to_install[@]} -gt 0 ]]; then
+clear
+  echo -e "${COLOR[green]}📦 Instalando: ${to_install[*]}${COLOR[reset]}"
+  sudo apt install -y "${to_install[@]}"
+fi
+
+}
+
+########################################
+# INSTALADOR SNAP
+########################################
+
+install_snap() {
+
+local pkg="$1"
+local flag="${2:-}"
+
+if snap_installed "$pkg"; then
+clear
+  echo -e "${COLOR[magenta]}✔ $pkg ya instalado${COLOR[reset]}"
+
+else
+clear
+  echo -e "${COLOR[green]}$📦 Instalando snap: $pkg${COLOR[reset]}"
+  sudo snap install "$pkg" $flag
+fi
+
+}
+
+########################################
+# UPDATE SISTEMA
+########################################
+
+system_update() {
+	clear
+	echo -e "${COLOR[green]}🔄 Actualizando sistema${COLOR[reset]}"
+	sudo apt update -y
+	sudo apt upgrade -y
+	sudo apt full-upgrade -y
+}
+
+########################################
+# LIMPIEZA
+########################################
+
+system_cleanup() { sudo apt autoremove -y; sudo apt clean; }
+
+########################################
+# FIREFOX
+########################################
+
+remove_firefox() {
+
+sudo snap remove --purge firefox || true
+sudo apt purge -y firefox || true
+rm -rf ~/.mozilla || true
+
+}
+
+########################################
+# BRAVE
+########################################
+
+install_brave() {
+
+if command_exists brave-browser; then
+clear
+  echo ""
+    echo -e "${COLOR[magenta]}✔ Brave ya instalado${COLOR[reset]}"
+  return
+fi
+clear
+
+echo -e "${COLOR[green]}📦 Instalando Brave${COLOR[reset]}"
+
+sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg \
+https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
+
+echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] \
+https://brave-browser-apt-release.s3.brave.com/ stable main" \
+| sudo tee /etc/apt/sources.list.d/brave-browser-release.list
+
+sudo apt update -y
+
+install_apt brave-browser -y
+
+}
+
+########################################
+# GOOGLE CHROME
+########################################
+
+install_chrome() {
+
+if command_exists google-chrome; then
+clear
+    echo -e "${COLOR[magenta]}✔ Chrome ya instalado${COLOR[reset]}"
+  
+  return
+fi
+clear
+
+echo -e "${COLOR[green]}📦 Instalando Google Chrome${COLOR[reset]}"
+
+tmp="/tmp/chrome.deb"
+
+wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O "$tmp"
+
+sudo dpkg -i "$tmp" || sudo apt -f install -y
+
+rm -f "$tmp"
+
+}
+
+########################################
+# PROTON VPN
+########################################
+
+install_protonvpn() {
+
+if pkg_installed proton-vpn-gnome-desktop; then
+clear
+  
+    echo -e "${COLOR[magenta]}✔ ProtonVPN ya instalado${COLOR[reset]}"
+
+  return
+fi
+clear
+
+echo -e "${COLOR[green]}📦  Instalando ProtonVPN${COLOR[reset]}"
+
+tmp="/tmp/protonvpn.deb"
+
+wget -q https://repo.protonvpn.com/debian/dists/stable/main/binary-all/protonvpn-stable-release_1.0.8_all.deb -O "$tmp"
+
+sudo dpkg -i "$tmp"
+
+sudo apt update -y
+
+install_apt \
+proton-vpn-gnome-desktop \
+gnome-keyring \
+libayatana-appindicator3-1
+
+rm -f "$tmp"
+
+echo "✔ ProtonVPN instalado"
+
+}
+
+########################################
+# VSCODE
+########################################
+
+install_vscode() {
+
+if command_exists code; then
+clear
+  
+    echo -e "${COLOR[magenta]}✔ VSCode ya instalado${COLOR[reset]}"
+	
+  return
+fi
+clear
+echo -e "${COLOR[green]}📦  Instalando VSCode${COLOR[reset]}"
+
+
+wget -qO- https://packages.microsoft.com/keys/microsoft.asc \
+| gpg --dearmor > packages.microsoft.gpg
+
+sudo install -D -m 644 packages.microsoft.gpg \
+/etc/apt/keyrings/packages.microsoft.gpg
+
+echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/packages.microsoft.gpg] \
+https://packages.microsoft.com/repos/code stable main" \
+| sudo tee /etc/apt/sources.list.d/vscode.list
+
+sudo apt update
+
+install_apt code
+
+}
+
+########################################
+# NODE
+########################################
+
+install_node() {
+
+if command_exists node; then
+clear
+    echo -e "${COLOR[magenta]}✔ Node ya instalado${COLOR[reset]}"
+  
+  return
+fi
+clear
+
+echo -e "${COLOR[green]}📦  Instalando NVM${COLOR[reset]}"
+
+curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
+
+export NVM_DIR="$HOME/.nvm"
+source "$NVM_DIR/nvm.sh"
+
+nvm install --lts
+nvm use --lts
+
+npm install -g pnpm yarn
+
+curl -fsSL https://bun.sh/install | bash
+
+}
+
+########################################
+# INSTALAR SNAP TOOLS
+########################################
+
+install_snap_tools() {
+
+for pkg in "${SNAP_DEV_TOOLS[@]}"; do
+
+  if [[ "$pkg" == "sublime-text" ]]; then
+    install_snap "$pkg" "--classic"
+  else
+    install_snap "$pkg"
+  fi
+
+done
+
+}
+
+########################################
+# INSTALAR APT TOOLS
+########################################
+
+install_apt_tools() {
+
+install_apt "${APT_DEV_TOOLS[@]}"
+
+}
+
+########################################
+# SSH
+########################################
+
+setup_ssh() {
+
+if [[ -f "$HOME/.ssh/id_ed25519" ]]; then
+  echo "✔ SSH ya configurado"
+  return
+fi
+
+read -rp "Email SSH: " EMAIL
+
+ssh-keygen -t ed25519 -C "$EMAIL" -f "$HOME/.ssh/id_ed25519" -N ""
+
+eval "$(ssh-agent -s)"
+ssh-add "$HOME/.ssh/id_ed25519"
+
+cat "$HOME/.ssh/id_ed25519.pub"
+
+}
+
+########################################
+# EJECUCIÓN
+########################################
+clear
+main() {
+START=$SECONDS
+
+detect_distro
+
+system_update
+
+install_apt "${APT_BASE[@]}"
+
+system_cleanup
+
+remove_firefox
+
+########################################
+# INSTALACIÓN PARALELA
+########################################
+
+install_brave &
+install_chrome &
+install_vscode &
+install_protonvpn &
+install_node &
+install_apt_tools &
+install_snap_tools &
+
+wait
+
+#setup_ssh
+
+system_cleanup
+
+ELAPSED=$(( SECONDS - START ))
+HORAS=$((ELAPSED / 3600))
+MINUTOS=$(( (ELAPSED % 3600) / 60 ))
+SEGUNDOS=$((ELAPSED % 60))
 
 clear
-echo -e ""
-echo -e "$bgris$verde══════════════════════════════════════════════════════════════════$reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris                Bienvenido $amarillo$USUARIO                        $reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris        Iniciando secuencia Post-Install en $verde$HOSTNAME                $reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris           Fecha: $azul$FECHA             Hora: $azul$HORA           $reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris$verde══════════════════════════════════════════════════════════════════$reset"
-sleep 3
+print_banner "  🎉 Secuencia Post-Install completada con éxito!!!
+	Usuario: $USUARIO
+	Host: $HOSTNAME
+	Fecha: $FECHA
+	Hora de inicio: $HORA
+	Hora de fin   : $(date '+%H:%M:%S')
+	Tiempo total  : ${HORAS}h:${MINUTOS}m:${SEGUNDOS}s"
 
-echo ""
-echo ""
-echo "🔧 Actualización del sistema e instalando dependencias necesarias..."
-sudo apt update -y
-sudo apt install snapd -y
-sudo apt install curl -y
-sudo apt install wget -y
-sudo apt dialogue -y
-sudo apt install --fix-missing -y
-sudo apt upgrade --allow-downgrades -y
-sudo apt full-upgrade --allow-downgrades -y
-sudo apt-get update -y
-sudo apt-get install -y libappindicator1 wget
-sudo apt install -f
-sudo apt autoremove -y
-sudo apt autoclean
-sudo apt clean
-sleep 5
+}
 
-echo ""
-echo ""
-echo "📦 Instalando Brave..."
-sudo apt install curl;
-sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg;
-echo "deb [signed-by=/usr/share/keyrings/brave-browser-archive-keyring.gpg] https://brave-browser-apt-release.s3.brave.com/ stable main"|sudo tee /etc/apt/sources.list.d/brave-browser-release.list;
-sudo apt update;
-sudo apt install -y brave-browser;
-echo ""
-echo "✅ Brave ha sido instalado correctamente."
-sleep 3
-
-echo ""
-echo ""
-echo "📦 Instalando Google Chrome..."
-wget -c --show-progress https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
-sudo dpkg -i google-chrome-stable_current_amd64.deb
-sudo apt-get install -f -y
-sudo apt-get upgrade -y google-chrome-stable
-sudo rm -f google-chrome-stable_current_amd64.deb
-echo ""
-echo "✅ Google Chrome ha sido instalado correctamente."
-sleep 3
-
-echo ""
-echo ""
-echo "📦 Desinstalando Firefox Mozilla..."
-sudo apt update -y
-sudo snap remove --purge firefox -y
-sudo apt remove --autoremove firefox -y
-sudo apt-get purge firefox -y 
-sudo rm -rf ~/.mozilla -y
-sudo apt-get update -y
-sudo apt -y upgrade
-echo "✅ Firefox Mozilla ha sido desinstalado correctamente."
-sleep 3
-
-
-echo ""
-echo ""
-echo "📦 Instalando Node..."
-sudo snap install curl
-curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.1/install.sh | bash
-\. "$HOME/.nvm/nvm.sh"
-nvm install 22
-node -v # Should print "v22.14.0".
-nvm current # Should print "v22.14.0".
-npm install -g npm@11.2.0
-echo "✅ Node ha sido instalado correctamente."
-echo ""
-node -v; npm -v;
-sleep 5
-
-echo ""
-echo ""
-echo "📦 Instalando Git..."
-sudo add-apt-repository -y ppa:git-core/ppa
-sudo apt install -y git
-echo "✅ git ha sido instalado correctamente."
-sleep 3
-
-echo ""
-echo ""
-echo "📦 Instalando VSCode..."
-sudo apt-get install wget gpg
-wget -qO- https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > packages.microsoft.gpg
-sudo install -D -o root -g root -m 644 packages.microsoft.gpg /etc/apt/keyrings/packages.microsoft.gpg
-sudo sh -c 'echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" > /etc/apt/sources.list.d/vscode.list'
-rm -f packages.microsoft.gpg
-sudo apt -y update
-sudo apt install -y code
-# Nodemon
-npm install -g nodemon
-npm install -g loopback-cli
-echo "✅ VSCode ha sido instalado correctamente."
-sleep 3
-
-echo "📦 Instalando App de Sistema..."
-echo ""
-echo ""
-echo ""
-sudo apt install -y wget
-wget -c --show-progress https://repo.protonvpn.com/debian/public_key.asc | sudo tee /etc/apt/trusted.gpg.d/protonvpn.asc
-echo "deb [signed-by=/etc/apt/trusted.gpg.d/protonvpn.asc] https://repo.protonvpn.com/debian stable main" | sudo tee /etc/apt/sources.list.d/protonvpn.list
-sudo apt -y update
-sudo apt -y install protonvpn
-echo "✅ Proton VPN ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo snap install proton-pass
-echo "✅ Proton Pass ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo snap install proton-mail
-echo "✅ Proton Mail ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo apt-get install -y chrome-gnome-shell
-echo "✅ Chrome-Gnome-Shell ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo apt-get -y install gnome-browser-connector
-echo "✅ Gnome-Browser-Connector ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo snap install proton-pass
-echo "✅ Proton Pass ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo snap install proton-mail
-echo "✅ Proton Mail ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo apt install -y font-manager
-echo "✅ Font-Manager ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo apt install -y net-tools
-echo "✅ Net-Tools ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo snap install sublime-text --classic
-echo "✅ Sublime Text ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo apt install -y usb-creator-gtk
-echo "✅ USB-Creator ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo apt install -y gparted
-echo "✅ GParted ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo snap install jdownloader2
-echo "✅ Jdownloader2 ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-sudo snap install vlc
-echo "✅ VLC ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-echo ""
-sudo snap install telegram-desktop
-echo "✅ Telegram-Desktop ha sido instalado correctamente."
-echo ""
-echo ""
-echo ""
-#sudo add-apt-repository -y ppa:teejee2008/timeshift
-#sudo apt-get install -y timeshift
-sleep 3
-
-echo "⬆️ Asegurando última versión..."
-sudo apt update -y
-sudo apt install --fix-missing -y
-sudo apt upgrade --allow-downgrades -y
-sudo apt full-upgrade --allow-downgrades -y
-echo ""
-echo ""
-sleep 3
-
-echo " LIMPIANDO SISTEMA..."
-sudo apt install -f
-sudo apt autoremove -y
-sudo apt autoclean -y
-sudo apt clean
-echo ""
-echo ""
-sleep 3
-
-clear
-HORA2=$(date "+%H:%M:%S")
-IFS=: read -ra hms1 <<< "$HORA"
-IFS=: read -ra hms2 <<< "$HORA2"
-segundos_hora1=$((10#${hms1[0]} * 3600 + 10#${hms1[1]} * 60 + 10#${hms1[2]}))
-segundos_hora2=$((10#${hms2[0]} * 3600 + 10#${hms2[1]} * 60 + 10#${hms2[2]}))
-diferencia_segundos=$((segundos_hora2 - segundos_hora1))
-HORAS=$((diferencia_segundos / 3600))
-diferencia_segundos_restantes=$((diferencia_segundos % 3600))
-MINUTOS=$((diferencia_segundos_restantes / 60))
-SEGUNDOS=$((diferencia_segundos_restantes % 60))
-clear
-echo -e ""
-echo -e "$bgris$verde══════════════════════════════════════════════════════════════════$reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris                 Felicidades $amarillo$USUARIO                      $reset"  
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris     La secuencia Post-Install en $verde$HOSTNAME$reset$bgris fue un ÉXITO             $reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris     Fecha: $azul$FECHA                                            $reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris         Hora de inicio : $azul$HORA                                $reset"
-echo -e "$bgris         HORA de fin    : $azul$HORA2                                $reset"
-echo -e "$bgris     $verde TIEMPO DE EJECUCIÓN$bgris:$n$azul$HORAS:$MINUTOS:$SEGUNDOS                                  $reset"
-echo -e "$bgris                                                                  $reset"
-echo -e "$bgris$verde══════════════════════════════════════════════════════════════════$reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris                                                                  $reset" 
-echo -e "$bgris$verde          $n$azul Proceder a crear llaves SSH...                         $reset"
-echo -e "$bgris                                                                  $reset" 
-echo -e ""
+main

@@ -26,8 +26,6 @@
 
 </div>
 
-
-
 ### ***🧹 node-clean***
 
 Herramienta CLI interactiva para localizar y eliminar `node_modules` y `.next` dentro de un árbol de directorios. Se pueden agregar más carpetas o archivos.
@@ -82,7 +80,6 @@ El archivo implementa un prompt dinámico optimizado con cacheo inteligente, ori
 | Detectar package manager   | ❌           | ✔️        |
 | Cache de estado            | ❌           | ✔️        |
 | Optimización por PWD       | ❌           | ✔️        |
-| Parsing JSON               | ❌           | ✔️        |
 
 
 #### Está más cerca de un mini framework de prompt que de un `.bashrc` común‼️

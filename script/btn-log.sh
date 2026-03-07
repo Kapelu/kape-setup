@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # ╔════════════════════════════════════════════════════╗
 # │ cerrar-sesion - Script para cerrar la sesión       │
-# │ Versión: 3.5                                       │
+# │ Versión: 2.0                                       │
 # │ Autor: Daniel Calderon - Kapelu                    │
 # │ Fecha: 04/03/2026                                  │
 # │ WebSite: https://danielcalderon.vercel.app/        │
+# │ Github: https://github.com/Kapelu                  │
 # ╚════════════════════════════════════════════════════╝
 set -Eeuo pipefail
 
