@@ -1,6 +1,6 @@
 {
-  "name": "setup-kape",
-  "version": "3.0.0",
+  "name": "post-install",
+  "version": "3.5.0",
   "description": "Script post instala de ubuntu",
   "bin": {
     "post-install": "cli.js"
