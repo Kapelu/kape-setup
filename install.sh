@@ -118,14 +118,7 @@ Categories=Utility;
 EOF
 }
 
-system_update(){
-
- log "Actualizando sistema"
-
- sudo apt update -y
- sudo apt upgrade -y
- sudo apt full-upgrade -y
-}
+system_update(){ sudo apt update -y; sudo apt upgrade -y; sudo apt full-upgrade -y; }
 
 system_cleanup(){
 
@@ -133,11 +126,7 @@ system_cleanup(){
  sudo apt clean
 }
 
-cleanup(){
-
- rm -rf "$TMP_DIR"
- log "Carpeta temporal eliminada"
-}
+cleanup(){ rm -rf "$TMP_DIR"; }
 
 run_setup(){
 
