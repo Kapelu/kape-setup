@@ -382,8 +382,6 @@ clear
 main() {
 START=$SECONDS
 
-install_btn
-
 detect_distro
 
 system_update
