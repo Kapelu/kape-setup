@@ -75,6 +75,7 @@ print_banner() {
   echo -e "${COLOR[green]}════════════════════════════════════════════════════${COLOR[reset]}"
   echo -e "$msg"
   echo -e "${COLOR[green]}════════════════════════════════════════════════════${COLOR[reset]}"
+  echo -e ""
 }
 sleep 3
 
