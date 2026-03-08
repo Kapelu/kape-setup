@@ -1,13 +1,12 @@
 #!/usr/bin/env bash
 # ╔════════════════════════════════════════════════════╗
-# │ .bashrc – Configuración de entorno personal        │
-# │ Versión: 3.0                                       │
+# │ cerrar-sesion - Script para cerrar la sesión       │
+# │ Versión: 2.0                                       │
 # │ Autor: Daniel Calderon - Kapelu                    │
+# │ Fecha: 04/03/2026                                  │
 # │ WebSite: https://danielcalderon.vercel.app/        │
 # │ Github: https://github.com/Kapelu                  │
-# │ Fecha: 16/02/2026                                  │
 # ╚════════════════════════════════════════════════════╝
-
 # Alias
 # =============================================================================
 alias ls='lsd'

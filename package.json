@@ -1,10 +1,10 @@
 {
   "name": "script-setup",
   "version": "3.0.0",
-  "description": "<div align=\"center\"> <h1 style='margin: 0 0 2rem; font-size: 2.5rem;'>script-setup</h1 > </div> <div align=\"center\">",
+  "description": "Script post instala de ubuntu",
   "main": "index.js",
-  "directories": {
-    "doc": "doc"
+  "bin": {
+    "mi-script": "./script.sh"
   },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
