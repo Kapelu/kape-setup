@@ -154,7 +154,6 @@ main(){
  run_setup
  cleanup
 
- log "Instalación finalizada"
 }
 
 main
