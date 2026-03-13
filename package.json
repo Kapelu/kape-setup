@@ -1,6 +1,6 @@
 {
   
-  "name": "kapelu",
+  "name": "setup-kapelu",
   "version": "3.0.0",
   "description": "Script post-install de Ubuntu",
   "type": "commonjs",
