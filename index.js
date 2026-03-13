@@ -68,11 +68,23 @@ try {
   console.log("🚀 Ejecutando install.sh\n");
   execSync(`bash ${__dirname}/install.sh`, { stdio: "inherit" });
 } catch (err) {
-  clear
-  console.log("");
-  console.error("          \n❌ Error ejecutando Post-Install:", err.message);
-  console.log("");
-  console.log("");
+  console.clear();
+
+  console.error("\n❌ Error ejecutando Post-Install\n");
+
+  if (err.status) {
+    console.error("Código de salida:", err.status);
+  }
+
+  if (err.cmd) {
+    console.error("Comando:", err.cmd);
+  }
+
+  if (err.stderr) {
+    console.error(err.stderr.toString());
+  }
+
+  console.error(err.message);
 
   process.exit(1);
 }
