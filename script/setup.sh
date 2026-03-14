@@ -148,7 +148,7 @@ fi
 
 system_update() {
 	clear
-	echo -e "  ${COLOR[green]}🔄 Actualizando sistema${COLOR[reset]}"
+	echo -e "  ${COLOR[yellow]}🔄 Actualizando sistema${COLOR[reset]}"
 	echo -e "  ${COLOR[green]}⚠️ Dar autorización Root‼️ ${COLOR[reset]}"
 	sudo apt update -y
 	sudo apt upgrade -y
