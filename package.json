@@ -4,7 +4,7 @@
   "description": "Script post-install de Ubuntu",
   "type": "commonjs",
   "bin": {
-    "kapelu": "index.js"
+    "kapelu": "cli.js"
   },
   "repository": {
     "type": "git",
