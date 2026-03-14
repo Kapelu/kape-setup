@@ -52,6 +52,16 @@ check_git(){
  fi
 }
 
+permits(){
+	while IFS= read -r -d '' file
+do
+  if head -n1 "$file" | grep -q "^#!"
+  then
+    chmod +x "$file"
+  fi
+done < <(find . -type f -print0)
+}
+
 backup_bashrc(){
 
  if [ -f "$HOME_DIR/.bashrc" ]; then
@@ -69,11 +79,12 @@ clone_repo(){
 
 copy_scripts(){
 
- mkdir -p "$HOME_DIR/script"
+mkdir -p "$HOME_DIR/script"
 
- cp "$TMP_DIR/script/"* "$HOME_DIR/script/"
+cp -r "$TMP_DIR/script/." "$HOME_DIR/script/"
 
- chmod +x "$HOME_DIR/script/"*
+find "$HOME_DIR/script" -type f -name "*.sh" -exec chmod +x {} \;
+
 }
 
 copy_config(){
@@ -134,7 +145,7 @@ run_setup(){
 
 printf "${green}📦 ¿Desea ejecutar setup.sh? (s/n): ${reset}"
 read RESP
-
+chmod +x setup.sh
 
  if [ "$RESP" = "s" ]; then
    bash "$HOME_DIR/script/setup.sh"
