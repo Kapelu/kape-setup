@@ -19,9 +19,9 @@ USUARIO=$(whoami)
 HOSTNAME=$(hostname)
 FECHA=$(date "+%d-%m-%Y")
 HORA=$(date "+%H:%M:%S")
-APT_BASE=( wget gpg curl apt-transport-https chrome-gnome-shell gnome-browser-connector font-manager net-tools )
-APT_DEV_TOOLS=( lsd neofetch dialog build-essential )
-SNAP_DEV_TOOLS=( proton-pass proton-mail jdownloader2 vlc telegram-desktop )
+APT_BASE=( wget gpg apt-transport-https chrome-gnome-shell gnome-browser-connector font-manager net-tools )
+APT_DEV_TOOLS=( lsd dialog build-essential )
+SNAP_DEV_TOOLS=( jdownloader2 vlc )
 
 # Cargar utils
 source "$BASE_DIR/ui/banner"
@@ -44,11 +44,20 @@ source "$BASE_DIR/script/protonvpn.sh"
 source "$BASE_DIR/script/sublime.sh"
 
 # Redirección silenciosa (todo al log excepto mensajes visibles)
-# Guardar stdout original
-# ------------------------------------------
+# Crea $HOME/setup.log - Header controlado
+LAST_LINE="$(tail -n 1 "$LOG_FILE" 2>/dev/null || true)"
+NEW_HEADER="===== START -> Install $(date '+%Y-%m-%d %H:%M:%S') ====="
+
+# Solo agrega si no es igual al último
+if [[ "$LAST_LINE" != "$NEW_HEADER" ]]; then
+  echo "" >> "$LOG_FILE"
+  echo "$NEW_HEADER" >> "$LOG_FILE"
+fi
+
+# Redirección
 exec 3>&1
-# El resto va al log
 exec 1>>"$LOG_FILE" 2>&1
+
 
 # Función para mostrar mensajes en pantalla
 # ------------------------------------------
@@ -74,6 +83,8 @@ main() {
   install_sublime
 
   system_cleanup
+	clear
+	os_info
 
 
   ELAPSED=$(( SECONDS - START ))
