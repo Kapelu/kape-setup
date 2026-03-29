@@ -44,7 +44,7 @@ _print() {
   local icon="$2"
   local msg="$3"
   # Imprime en consola
-  printf "%b\n" "${COLOR[$color]}${icon}${COLOR[reset]} ${msg}"
+    printf "%b\n" "${icon} ${COLOR[$color]}${msg}${COLOR[reset]}"
   # También escribe a log file si está definido
   if [[ -n "$LOG_FILE" ]]; then
     # Quita los códigos ANSI para el log
