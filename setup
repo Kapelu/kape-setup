@@ -38,28 +38,32 @@ declare -A COLOR=(
 )
 
 # Directorio base donde se encuentran los scripts
-BASE_SCRIPT="${BASE_SCRIPT:-$(dirname "$(realpath "$0")")}"
+BASE_SCRIPT="$HOME/temp/kpsetup/script"
 
-# Array con todos los scripts a cargar
-SCRIPTS=(
-  "ui"
-  "log"
-  "update"
-  "helper"
-  "os_info"
-  "remove_firefox"
-  "brave"
-  "vscode"
-  "google"
-)
+# Verificar que el directorio exista
+if [[ ! -d "$BASE_SCRIPT" ]]; then
+    echo "❌ Directorio de scripts no encontrado: $BASE_SCRIPT"
+    exit 1
+fi
 
-# Cargar todos los scripts en una sola línea de ejecución
-for script in "${SCRIPTS[@]}"; do
-    source "$BASE_SCRIPT/script/$script"
+# Dar permisos de ejecución a todos los archivos dentro del directorio
+chmod +x "$BASE_SCRIPT"/*
+
+# Cargar todos los archivos del directorio
+for script_file in "$BASE_SCRIPT"/*; do
+    # Saltar si no es archivo regular
+    [[ -f "$script_file" ]] || continue
+
+    # Comprobar que tenga shebang de bash
+    if ! head -n 1 "$script_file" | grep -q "^#!/usr/bin/env bash"; then
+        echo "⚠️ Ignorado (no es bash): $script_file"
+        continue
+    fi
+
+    # Cargar el script
+    source "$script_file"
+    echo "✅ Cargado: $script_file"
 done
-
-# Mensaje de confirmación
-echo "Todos los scripts se han cargado correctamente."
 
 # Redirección silenciosa (todo al log excepto mensajes visibles)
 # Crea $HOME/setup.log - Header controlado
