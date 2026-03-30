@@ -53,12 +53,14 @@ _print() {
     echo "${icon} ${clean_msg}" >>"$LOG_FILE"
   fi
 }
+
 # Logs básicos
 log_ok()    { _print "ok"    "$ICON_OK"    "$1"; }
 log_error() { _print "error" "$ICON_ERROR" "$1"; }
 log_warn()  { _print "warn"  "$ICON_WARN"  "$1"; }
 log_info()  { _print "info"  "$ICON_INFO"  "$1"; }
 log_run()   { _print "blue"  "$ICON_RUN"   "$1"; }
+
 # log_verify
 log_verify() {
   local name="$1"
@@ -71,6 +73,7 @@ log_verify() {
   fi
   _print "ok" "$ICON_VERIFY" "$name version: ${COLOR[bold]}$output${COLOR[reset]}"
 }
+
 # Manejo de errores global
 error() {
   log_error " ⚠️ ERROR EN LÍNEA $1. Revisar log: $LOG_FILE"

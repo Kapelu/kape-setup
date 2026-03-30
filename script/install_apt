@@ -12,7 +12,9 @@ IFS=$'\n\t'
 clear
 
 APT_TOOLS=( 
-  wget 
+	pciutils
+  wget
+	ca-certificates
   gpg 
   apt-transport-https 
   chrome-gnome-shell 

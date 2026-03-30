@@ -10,6 +10,8 @@
 set -Eeuo pipefail
 IFS=$'\n\t'
 clear
+# Protección: evitar ejecución fuera de kapelu
+[[ $EUID -ne 0 ]] && { echo "Debe ejecutarse como root"; exit 1; }
 
 # Variables
 # ------------------------------------------
@@ -25,35 +27,39 @@ declare -A COLOR=(
   [bold]=$'\e[1m'       # Negrita
   [italic]=$'\e[3m'     # Cursiva (no siempre soportado)
   
-  [info]=$'\e[34m'      # Azul
+  [error]=$'\e[31m'     # Rojo
   [ok]=$'\e[32m'        # Verde
   [warn]=$'\e[33m'      # Amarillo
-  [error]=$'\e[31m'     # Rojo
-  
-  [yellow]=$'\e[0;33m'  # Amarillo
-  [red]=$'\e[31m'       # Rojo
-  [green]=$'\e[32m'     # Verde
-  [blue]=$'\e[34m'      # Azul
+  [info]=$'\e[34m'      # Azul
+	
   [magenta]=$'\e[35m'   # Magenta / violeta
+	[cyan]=$'\e[36m'      # Cyan
   [gray]=$'\e[90m'      # Gris oscuro / gris claro dependiendo de la terminal
 )
 
-# Cargar scripts
-source "$BASE_DIR/script/ui"
-source "$BASE_DIR/script/log"
-source "$BASE_DIR/script/update"
-source "$BASE_DIR/script/helper"
-source "$BASE_DIR/script/os_info"
+# Directorio base donde se encuentran los scripts
+BASE_SCRIPT="${BASE_SCRIPT:-$(dirname "$(realpath "$0")")}"
 
+# Array con todos los scripts a cargar
+SCRIPTS=(
+  "ui"
+  "log"
+  "update"
+  "helper"
+  "os_info"
+  "remove_firefox"
+  "brave"
+  "vscode"
+  "google"
+)
 
-source "$BASE_DIR/script/config.sh"
-source "$BASE_DIR/script/node.sh"
-source "$BASE_DIR/script/vscode.sh"
-source "$BASE_DIR/script/firefox_remove.sh"
-source "$BASE_DIR/script/brave.sh"
-source "$BASE_DIR/script/google.sh"
-source "$BASE_DIR/script/protonvpn.sh"
-source "$BASE_DIR/script/sublime.sh"
+# Cargar todos los scripts en una sola línea de ejecución
+for script in "${SCRIPTS[@]}"; do
+    source "$BASE_SCRIPT/script/$script"
+done
+
+# Mensaje de confirmación
+echo "Todos los scripts se han cargado correctamente."
 
 # Redirección silenciosa (todo al log excepto mensajes visibles)
 # Crea $HOME/setup.log - Header controlado
@@ -84,20 +90,17 @@ main() {
   update
 	install_apt
 	install_snap
-
-
-  config
-
-  install_vscode
   remove_firefox
-  install_brave
-  install_google
-  install_protonvpn
-  install_sublime
+  brave
+  google
+  vscode
+  sublime
 
-  cleanup
+	
+	update
 	clear
 	os_info
+  cleanup
 
 
   ELAPSED=$(( SECONDS - START ))
