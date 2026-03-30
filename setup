@@ -90,13 +90,12 @@ main() {
   update
 	install_apt
 	install_snap
-  remove_firefox
-  brave
-  google
-  vscode
-  sublime
+	remove_firefox
+	brave
+	google
+	vscode
+	sublime
 
-	
 	update
 	clear
 	os_info
