@@ -97,52 +97,62 @@ elapsed_time() {
   printf "%dh:%dm:%ds" "$horas" "$minutos" "$segundos"
 }
 #* log_*: maneja los los en pantalla y archivo.log
-log_print() {
-  local type="$1" 
+log_print(){
+  local type="$1"
   local msg="$2"
   local icon color text
+
   case "$type" in
     info)     icon="$ICON_INFO";     color="yellow" ;;
     ok)       icon="$ICON_OK";       color="yellow" ;;
     warn)     icon="$ICON_WARN";     color="yellow" ;;
     error)    icon="$ICON_ERROR";    color="yellow" ;;
     run)      icon="$ICON_RUN";      color="yellow" ;;
-    verify)   icon="$ICON_VERIFY";   color="yellow";;
-    verifail) icon="$ICON_VERIFAIL"; color="yellow";;
+    verify)   icon="$ICON_VERIFY";   color="yellow" ;;
+    verifail) icon="$ICON_VERIFAIL"; color="yellow" ;;
     *)        icon="";               color="yellow" ;;
   esac
+
   text="$msg"
+
   local timestamp
   timestamp="$(datetime time)"
+
   local console_line="              [$timestamp] ${icon}${COLOR[$color]} ${text}${COLOR[reset]}"
   local log_line="[$timestamp] ${icon} ${text}"
+
   {
     flock -x 200
+
     # consola
     printf "%b%-40s%b\n" "$console_line" >&3
+
     # log
-    [[ -n "$LOG_FILE" ]] && printf "%s\n" "$log_line" >>"$LOG_FILE"
+    if [ -n "$LOG_FILE" ]; then
+      printf "%s\n" "$log_line" >>"$LOG_FILE"
+    fi
   } 200>/tmp/kapelu.lock
-	# ╔════════════════════════════════════════════════════╗
-  # │ Uso:                                               │
-  # │ log_info "Iniciando kpsetup..."                    │
-  # │ log_run "Instalando dependencias..."               │
-  # │ log_verify "Node.js" node -v                       │
-  # │ log_verify "npm" npm -v                            │
-  # │ log_ok "Instalación completada"                    │
-  # │ log_warn "Algunos archivos quedaron sin usar"      │
-  # │ log_error "Se detectaron errores menores"          │
-  # │                                                    │
-  # │ Salida en consola ( en .log sincolor):             │
-  # │ 🟩 Iniciando kpsetup...                            │
-  # │ ⚙️ Instalando dependencias...                      │
-  # │ ✔️ Node.js version: 20.2.0                         │
-  # │ ⛔ npm no disponible                               │
-  # │ ✅ Instalación completada                          │
-  # │ ⚠️ Algunos archivos quedaron sin usar              │
-  # │ ❌ Se detectaron errores menores                   │
-  # ╚════════════════════════════════════════════════════╝
 }
+# ╔════════════════════════════════════════════════════╗
+# │ Uso:                                               │
+# │ log_info "Iniciando kpsetup..."                    │
+# │ log_run "Instalando dependencias..."               │
+# │ log_verify "Node.js" node -v                       │
+# │ log_verify "npm" npm -v                            │
+# │ log_ok "Instalación completada"                    │
+# │ log_warn "Algunos archivos quedaron sin usar"      │
+# │ log_error "Se detectaron errores menores"          │
+# │                                                    │
+# │ Salida en consola ( en .log sincolor):             │
+# │ 🟩 Iniciando kpsetup...                            │
+# │ ⚙️ Instalando dependencias...                      │
+# │ ✔️ Node.js version: 20.2.0                         │
+# │ ⛔ npm no disponible                               │
+# │ ✅ Instalación completada                          │
+# │ ⚠️ Algunos archivos quedaron sin usar              │
+# │ ❌ Se detectaron errores menores                   │
+# ╚════════════════════════════════════════════════════╝
+
 
 #//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
 #//                  ║            CONFIGURACIONES UI         ║
