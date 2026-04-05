@@ -29,7 +29,18 @@ HOSTNAME=$(hostname)
 USER_HOME="$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)"
 LOG_FILE="$USER_HOME/setup.log"
 START_INITIAL="$(date +"%H:%M:%S")"
-APT_TOOLS=( curl wget pciutils gpg git lsd dialog inotify-tools lsd totem rhythmbox )
+APT_TOOLS=(
+  curl
+  wget
+  pciutils
+  gpg
+  git
+  lsd
+  dialog
+  inotify-tools
+  totem
+  rhythmbox
+)
 SNAP_TOOLS=( jdownloader2 )
 declare -gA COLOR=(
   [reset]=$'\e[0m'      # Reset / color normal
