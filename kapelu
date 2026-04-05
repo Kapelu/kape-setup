@@ -52,13 +52,13 @@ declare -gA COLOR=(
   [gray]=$'\e[90m'      # fondo normal
 )
 # Iconos de .log
-ICON_INFO="🟢 "
-ICON_OK="✅ "
-ICON_WARN="⚠️ "
-ICON_ERROR="❌ "
-ICON_RUN="⚙️ "
-ICON_VERIFY="✔️ "
-ICON_VERIFAIL="⛔ "
+ICON_INFO="🟢"
+ICON_OK="✅"
+ICON_WARN="⚠️"
+ICON_ERROR="❌"
+ICON_RUN="⚙️"
+ICON_VERIFY="✔️"
+ICON_VERIFAIL="⛔"
 
 #//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
 #//                  ║         FUNCIONES UTILITARIAS         ║
@@ -100,9 +100,7 @@ elapsed_time() {
 log_print() {
   local type="$1" 
   local msg="$2"
-
   local icon color text
-
   case "$type" in
     info)     icon="$ICON_INFO";     color="yellow" ;;
     ok)       icon="$ICON_OK";       color="yellow" ;;
@@ -113,24 +111,37 @@ log_print() {
     verifail) icon="$ICON_VERIFAIL"; color="yellow";;
     *)        icon="";               color="yellow" ;;
   esac
-
   text="$msg"
   local timestamp
   timestamp="$(datetime time)"
-
-  local console_line="[$timestamp] ${icon}${COLOR[$color]}${text}${COLOR[reset]}"
-  local log_line="[$timestamp] ${icon}${text}"
-
+  local console_line="[$timestamp] ${icon}${COLOR[$color]} ${text}${COLOR[reset]}"
+  local log_line="[$timestamp] ${icon} ${text}"
   {
     flock -x 200
-
     # consola
     printf "%b%-40s%b\n" "$console_line" >&3
-
     # log
     [[ -n "$LOG_FILE" ]] && printf "%s\n" "$log_line" >>"$LOG_FILE"
-
   } 200>/tmp/kapelu.lock
+	# ╔════════════════════════════════════════════════════╗
+  # │ Uso:                                               │
+  # │ log_info "Iniciando kpsetup..."                    │
+  # │ log_run "Instalando dependencias..."               │
+  # │ log_verify "Node.js" node -v                       │
+  # │ log_verify "npm" npm -v                            │
+  # │ log_ok "Instalación completada"                    │
+  # │ log_warn "Algunos archivos quedaron sin usar"      │
+  # │ log_error "Se detectaron errores menores"          │
+  # │                                                    │
+  # │ Salida en consola ( en .log sincolor):             │
+  # │ 🟩 Iniciando kpsetup...                            │
+  # │ ⚙️ Instalando dependencias...                      │
+  # │ ✔️ Node.js version: 20.2.0                         │
+  # │ ⛔ npm no disponible                               │
+  # │ ✅ Instalación completada                          │
+  # │ ⚠️ Algunos archivos quedaron sin usar              │
+  # │ ❌ Se detectaron errores menores                   │
+  # ╚════════════════════════════════════════════════════╝
 }
 
 #//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
@@ -194,7 +205,7 @@ VALIDAR_DISTRO() {
 UPDATE(){
 	log_print info "Actualizando sistema..."
 	if ! apt-get update; then
-		log_print verifail " Error en apt-get update"
+		log_print verifail "Error en apt-get update"
     return 1
   fi
   if ! apt-get dist-upgrade -y; then
@@ -246,7 +257,7 @@ FULL_UPDATE() {
     fi
     # Flatpak
     if command -v flatpak >/dev/null 2>&1; then
-        log_print info " ➤ Actualizando paquetes Flatpak..."
+        log_print info "➤ Actualizando paquetes Flatpak..."
         flatpak update -y 2>/dev/null
     fi
     # Firmware (solo si es UEFI) / Microcode
@@ -257,7 +268,7 @@ FULL_UPDATE() {
             fwupdmgr update >/dev/null 2>&1
         fi
     else
-        log_print warn "➤ Sistema en modo Legacy BIOS, se omite firmware."
+        log_print warn " ➤ Sistema en modo Legacy BIOS, se omite firmware."
     fi
     log_print ok "Actualización completa finalizada."
 }
@@ -317,6 +328,188 @@ INSTALL_APT() {
   done
   log_print ok "Instalación de pauqetes APT finalizado"
 }
+#* INSTALL_BRAVE: Instala Brave
+INSTALL_BRAVE() {
+  log_print run " Instalando Brave Browser..."
+  # Asegurar curl
+  if ! dpkg -s curl &>/dev/null; then
+    log_print run " Instalando dependencia: curl..."
+    apt-get update -y || {
+      log_print warn " Fallo en apt-get update"
+      return 1
+    }
+    apt-get install -y curl || {
+      log_print warn " No se pudo instalar curl"
+      return 1
+    }
+  fi
+  # LIMPIEZA PREVIA (clave para evitar conflicto Signed-By)
+  log_print run " Limpiando configuraciones previas de Brave..."
+  rm -f /etc/apt/sources.list.d/brave-browser*
+  rm -f /usr/share/keyrings/brave-browser-archive-keyring.gpg
+  rm -f /etc/apt/keyrings/brave-browser-archive-keyring.gpg
+  # Crear directorio estándar si no existe
+  mkdir -p /usr/share/keyrings
+  # Keyring
+  log_print run " Descargando keyring de Brave..."
+  curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg \
+    https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg || {
+      log_print warn "Error descargando keyring"
+      return 1
+    }
+  # Repo
+  log_print run " Agregando repositorio Brave..."
+  curl -fsSLo /etc/apt/sources.list.d/brave-browser-release.sources \
+    https://brave-browser-apt-release.s3.brave.com/brave-browser.sources || {
+      log_print warn "Error agregando repositorio"
+      return 1
+    }
+  # Update + install
+  log_print run " Actualizando repositorios..."
+  apt-get update -y || {
+    log_print warn " Fallo en apt-get update"
+    return 1
+  }
+  log_print run " Instalando brave-browser..."
+  apt-get install -y brave-browser || {
+    log_print warn "No se pudo instalar Brave"
+    return 1
+  }
+  log_print ok "Brave instalado correctamente"
+}
+#* INSTALL_GOOGLE: Instala Google Chrome
+INSTALL_GOOGLE() {
+	log_print run "Instalación de Google Chrome..."
+  rm -f /etc/apt/sources.list.d/google-chrome.list
+  rm -f /etc/apt/keyrings/google-chrome.gpg
+  log_print run "Agregando clave oficial (keyring)..."
+  mkdir -p /etc/apt/keyrings
+  curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg
+  chmod 644 /etc/apt/keyrings/google-chrome.gpg
+  log_print run "Agregando repositorio..."
+  echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    > /etc/apt/sources.list.d/google-chrome.list
+  log_print run "Actualizando repositorios..."
+  apt-get update
+  log_print run "Instalando Google Chrome..."
+  apt-get install -y google-chrome-stable
+  log_print ok "Google Chrome instalado correctamente"
+}
+#* REMOVE_FIREFOX: Desintala completamente Firefox del sistema, sin dejar residuos.
+REMOVE_FIREFOX() {
+  log_print INFO "Detectando instalación de Firefox..."
+  local found=false
+  # --- SNAP ---
+  if command -v snap >/dev/null 2>&1 && snap list 2>/dev/null | grep -q "^firefox"; then
+    log_print INFO "Firefox detectado como SNAP"
+    snap remove --purge firefox
+    rm -rf /var/snap/firefox /var/lib/snapd/snaps/firefox*
+    found=true
+  fi
+  # --- APT ---
+  if dpkg -s firefox &>/dev/null; then
+    log_print INFO "Firefox detectado como paquete APT"
+    apt-get purge -y firefox
+    apt-get autoremove -y --purge
+    rm -f /etc/apt/sources.list.d/*firefox*
+    found=true
+  fi
+  # --- FLATPAK ---
+  if command -v flatpak >/dev/null 2>&1 && flatpak list 2>/dev/null | grep -q "org.mozilla.firefox"; then
+    log_print INFO "Firefox detectado como FLATPAK"
+    flatpak uninstall -y org.mozilla.firefox --delete-data
+    rm -rf /var/lib/flatpak/app/org.mozilla.firefox
+    found=true
+  fi
+  if [ "$found" = false ]; then
+    log_print WARN "Firefox no está instalado por apt, snap ni flatpak"
+  fi
+  log_print INFO "Eliminando residuos..."
+  # --- USERS ---
+  for dir in /home/* /root; do
+    rm -rf  "$dir/.mozilla" \
+            "$dir/.cache/mozilla" \
+            "$dir/.config/firefox"
+  done
+  # --- BINARIOS ---
+  rm -f /usr/bin/firefox /usr/local/bin/firefox
+  # --- SYSTEM ---
+  rm -rf  /usr/lib/firefox \
+          /usr/lib/firefox-esr \
+          /usr/share/firefox \
+          /etc/firefox
+
+  log_print OK "Firefox eliminado completamente"
+}
+#* REMOVE_FIREFOX: Desintala completamente Firefox del sistema, sin dejar residuos.
+
+INSTALL_NODE() {
+  log_print info "Instalando Node.js LTS + pnpm (modo usuario con nvm)..."
+  local USER_HOME
+  USER_HOME="$(eval echo ~${SUDO_USER:-$USER})"
+  local NVM_DIR="$USER_HOME/.nvm"
+  # --- Limpiar instalación previa de nvm ---
+  if [ -d "$NVM_DIR" ]; then
+    log_print run "Eliminando instalación previa de nvm..."
+    rm -rf "$NVM_DIR"
+  fi
+  # Limpiar cargas previas en bashrc/zshrc
+  sed -i '/NVM_DIR/d' "$USER_HOME/.bashrc" 2>/dev/null
+  sed -i '/nvm.sh/d' "$USER_HOME/.bashrc" 2>/dev/null
+  sed -i '/bash_completion.*nvm/d' "$USER_HOME/.bashrc" 2>/dev/null
+  sed -i '/NVM_DIR/d' "$USER_HOME/.zshrc" 2>/dev/null
+  sed -i '/nvm.sh/d' "$USER_HOME/.zshrc" 2>/dev/null
+  # --- Instalar nvm ---
+  log_print info "Descargando e instalando nvm..."
+  if ! curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash; then
+    log_print verifail "Error instalando nvm"
+    return 1
+  fi
+  # --- Cargar nvm en este shell ---
+  export NVM_DIR="$NVM_DIR"
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  if ! command -v nvm >/dev/null 2>&1; then
+    log_print verifail "nvm no se cargó correctamente"
+    return 1
+  fi
+  # --- Instalar Node LTS con npm actualizado ---
+  log_print run "Instalando Node.js LTS..."
+  if ! nvm install --lts --latest-npm; then
+    log_print verifail "Error instalando Node.js LTS"
+    return 1
+  fi
+  # Usar LTS por defecto
+  nvm alias default 'lts/*'
+  nvm use default
+  # --- Activar pnpm mediante corepack ---
+  log_print info "Activando pnpm con corepack..."
+  if ! corepack enable; then
+    log_print verifail "Error habilitando corepack"
+    return 1
+  fi
+  if ! corepack prepare pnpm@latest --activate; then
+    log_print verifail "Error activando pnpm"
+    return 1
+  fi
+  # --- Verificación ---
+  log_print info "Verificando instalación..."
+  local NODE_V NPM_V PNPM_V
+  NODE_V="$(node -v 2>/dev/null)"
+  NPM_V="$(npm -v 2>/dev/null)"
+  PNPM_V="$(pnpm -v 2>/dev/null)"
+  if [[ -z "$NODE_V" || -z "$NPM_V" || -z "$PNPM_V" ]]; then
+    log_print verifail "La instalación no se completó correctamente"
+    return 1
+  fi
+  log_print verrify "Node: $NODE_V"
+  log_print verrify "npm: $NPM_V"
+  log_print verrify "pnpm: $PNPM_V"
+  log_print ok "Node.js LTS + pnpm instalado correctamente"
+}
+
+
+
 
 #* OS_INFO: Brinda información del sistema
 OS_INFO() {
@@ -472,7 +665,8 @@ RENDER_OSINFO() {
   printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Disk:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO disk)"
   printf "%s\n" ""
   printf "%b%-40s%b\n" "      	 ${COLOR[ok]}📅 $(datetime)${COLOR[reset]}"
-  printf "%b%-40s%b\n" "      	 ${COLOR[ok]}⚠️  Info guardada en $USER_HOME/OS_Info.md${COLOR[reset]}"
+  printf "%b%-40s%b\n" "      	 ${COLOR[ok]}✔️ Info de sistema en $USER_HOME/OS_Info.md${COLOR[reset]}"
+  printf "%b%-40s%b\n" "      	 ${COLOR[ok]}✔️ Info de instalación en $USER_HOME/setup.log${COLOR[reset]}"
 	printf "%s\n" ""
   printf "      	    Presioná SPACE para continuar..." >&3
 	read -n 1 -s -r </dev/tty
@@ -496,19 +690,15 @@ main() {
 	UPDATE
 	INSTALL_SNAP
 	INSTALL_APT
+	INSTALL_BRAVE
+	INSTALL_GOOGLE
+	REMOVE_FIREFOX
 
-  # update
-	# install_apt
-	# install_snap
+
 	# remove_firefox
-	# brave
-	# google
 	# vscode
 	# sublime
-	# update
 	# clear >&3
-	# os_info
-  # cleanup
   OS_INFO
 	FULL_UPDATE
   INFO_OSINFO
