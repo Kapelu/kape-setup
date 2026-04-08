@@ -19,7 +19,1001 @@ if [[ $EUID -ne 0 ]]; then
   printf "%s\n" "\e[0m"
 fi
 
+set -Eeuo pipefail#!/usr/bin/env bash
+# ┌<<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>>┐
+# │  Install – Instalador Post-Install de Ubuntu   │
+# │  Versión: 3.0                                  │
+# │  Autor: Daniel Calderon - Kapelu               │
+# │  Fecha: 04-07-2025                             │
+# │  WebSite: https://danielcalderon.vercel.app/   │
+# │  Github: https://github.com/Kapelu             │
+# └<<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>>┘
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║    ELEVACION DE PRIVILEGIOS SUDO      ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+# Detectar sudo
+if [[ $EUID -ne 0 ]]; then
+		SUDO="sudo"
+	else
+		SUDO=""
+fi
+
+# Forzar autenticación sudo al inicio
+if [[ -n "$SUDO" ]]; then
+	clear
+  printf "%s\n"
+  printf "%b%-40s%b\n" "\e[3;32m[+] Elevando privilegios sudo...\e[0m\e[3;90m"
+  sudo -v -p "[sudo] contraseña: " || exit 1
+  printf "%s\n" "\e[0m"
+fi
+
 set -Eeuo pipefail
+IFS=$'\n\t'
+
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║              VARIABLES                ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+USUARIO=$(whoami)
+HOSTNAME=$(hostname)
+USER_HOME="$(getent passwd "${SUDO_USER:-$USER}" | cut -d: -f6)"
+LOG_FILE="$USER_HOME/setup.log"
+START_INITIAL="$(date +"%H:%M:%S")"
+APT_TOOLS=(
+	software-properties-common
+	apt-transport-https
+	curl
+  wget
+  pciutils
+  gpg
+  git
+  lsd
+  dialog
+  inotify-tools
+  totem
+  rhythmbox
+	libappindicator3-1
+	libayatana-appindicator3-1
+)
+SNAP_TOOLS=( jdownloader2 )
+declare -gA COLOR=(
+  [reset]=$'\e[0m'      # Reset / color normal
+  [bold]=$'\e[1m'       # Negrita
+  [italic]=$'\e[3m'     # Cursiva (no siempre soportado)
+
+  [error]=$'\e[31m'     # Rojo
+  [ok]=$'\e[32m'        # Verde
+  [warn]=$'\e[33m'      # Amarillo
+  [info]=$'\e[34m'      # Azul
+
+  [black]=$'\e[30m'     # Negro
+  [red]=$'\e[31m'       # Rojo
+  [green]=$'\e[32m'     # Verde
+  [yellow]=$'\e[33m'    # Amarillo brillante(reemplazar 3 x 9)
+  [blue]=$'\e[34m'      # Azul
+  [magenta]=$'\e[35m'   # Magenta / violeta
+  [cyan]=$'\e[36m'      # Cyan
+  [white]=$'\e[37m'     # Blanco
+  [gray]=$'\e[90m'      # Gris (foreground)
+  [green_gray]=$'\e[32;40m'    # verde brillante + fondo negro
+  [yellow_gray]=$'\e[93;40m'   # amarillo brillante + fondo negro
+)
+# Iconos de .log
+ICON_INFO="🟢"
+ICON_OK="✅"
+ICON_WARN="⚠️"
+ICON_ERROR="❌"
+ICON_RUN="⚙️"
+ICON_VERIFY="✔️"
+ICON_VERIFAIL="⛔"
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║         FUNCIONES UTILITARIAS         ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+#* Crea $USER_HOME/setup.log 
+file_log() {
+  exec 3>&1
+  exec 1>>"$LOG_FILE" 2>&1
+  clear >&3
+  HEADER="          ===== START -> kapelu $(date '+%Y-%m-%d %H:%M:%S') ====="
+  printf "%s\n" "$HEADER"        # 👉 va al log
+  printf "%s\n" "" >&3
+  printf "%s\n" "$HEADER" >&3    # 👉 se ve en pantalla
+}
+#* datetime: manejo de fecha y hora
+datetime() {
+  local fecha hora
+  fecha="$(date +"%d-%m-%Y")"
+  hora="$(date +"%H:%M:%S")"
+
+  case "${1:-full}" in            #    Uso 
+    date) printf "%s\n" "$fecha" ;;        # printf "%s\n" "$(datetime date)" 
+    time) printf "%s\n" "$hora" ;;         # printf "%s\n" "$(datetime time)"
+    *) printf "%s\n" "$fecha - $hora" ;;   # printf "%s\n" "$(datetime)"     
+  esac
+}
+#* elapsed_time: maneja el tiempo de instalación del script
+elapsed_time() {
+  local start="$1"
+  local elapsed=$((SECONDS - start))
+
+  local horas=$((elapsed / 3600))
+  local minutos=$(((elapsed % 3600) / 60))
+  local segundos=$((elapsed % 60))
+
+  printf "%dh:%dm:%ds" "$horas" "$minutos" "$segundos"
+}
+#* log_*: maneja los los en pantalla y archivo.log
+log_print(){
+  # ╔══════════════════════════════════════════════════════════════════════════════╗
+  # ║ Uso                                   │ Salida en consola (.log sin color)   ║
+  # ╠═══════════════════════════════════════╪══════════════════════════════════════╣
+  # ║ log_info "Iniciando kpsetup..."       │ 🟩 Iniciando kpsetup...              ║
+  # ║ log_run "Instalando dependencias..."  │ ⚙️ Instalando dependencias...        ║
+  # ║ log_verify "Node.js" node -v          │ ✔️ Node.js version: 20.2.0           ║
+  # ║ log_verify "npm" npm -v               │ ⛔ npm no disponible                 ║
+  # ║ log_ok "Instalación completada"       │ ✅ Instalación completada            ║
+  # ║ log_warn "Archivos sin usar"          │ ⚠️ Algunos archivos sin usar         ║
+  # ║ log_error "Errores menores"           │ ❌ Se detectaron errores menores     ║
+  # ╚═══════════════════════════════════════╧══════════════════════════════════════╝
+
+  local type="$1"
+  local msg="$2"
+  local icon color text
+
+  case "$type" in
+    info)     icon="$ICON_INFO";     color="yellow" ;;
+    ok)       icon="$ICON_OK";       color="yellow" ;;
+    warn)     icon="$ICON_WARN";     color="yellow" ;;
+    error)    icon="$ICON_ERROR";    color="yellow" ;;
+    run)      icon="$ICON_RUN";      color="yellow" ;;
+    verify)   icon="$ICON_VERIFY";   color="yellow" ;;
+    verifail) icon="$ICON_VERIFAIL"; color="yellow" ;;
+    *)        icon="";               color="yellow" ;;
+  esac
+
+  text="$msg"
+
+  local timestamp
+  timestamp="$(datetime time)"
+
+  local console_line="              $timestamp ~${COLOR[$color]} ${text}${COLOR[reset]}"
+  local log_line="$timestamp ~${text}"
+
+  {
+    flock -x 200
+
+    # consola
+    printf "%b%-20s%b\n" "$console_line" >&3
+
+    # log
+    if [ -n "$LOG_FILE" ]; then
+      printf "%s\n" "$log_line" >>"$LOG_FILE"
+    fi
+  } 200>/tmp/kapelu.lock
+}
+
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║            CONFIGURACIONES UI         ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+logo() {
+  {
+    printf "%b%-40s%b\n" "${COLOR[ok]}"
+    printf " ${COLOR[green_gray]}/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/                                                           / \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \  ${COLOR[yellow_gray]}██   ██  █████   █████  █████  ██████  ██    ██  █████${COLOR[green_gray]}   \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/  ${COLOR[yellow_gray]}██  ██   ██  ██  ██     ██       ██    ██    ██  ██  ██${COLOR[green_gray]}  / \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \  ${COLOR[yellow_gray]}█████    █████   █████  ████     ██    ██    ██  █████${COLOR[green_gray]}   \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/  ${COLOR[yellow_gray]}██  ██   ██         ██  ██       ██     ██  ██   ██${COLOR[green_gray]}      / \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \  ${COLOR[yellow_gray]}██   ██  ██      █████  █████    ██      ████    ██${COLOR[green_gray]}      \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/                                                          _/ \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/\_/ ${COLOR[reset]}\n"
+
+    printf "%b%-40s%b\n" "${COLOR[reset]}"
+  } >&3
+}
+print_banner() {
+  local msg="$1"
+  {
+    printf "%b%-40s%b\n" "	${COLOR[warn]}════════════════════════════════════════════════════${COLOR[reset]}"
+    printf "%b%-40s%b\n" "$msg"
+    printf "%b%-40s%b\n" "	${COLOR[warn]}════════════════════════════════════════════════════${COLOR[reset]}"
+    printf "\n"
+  } >&3
+}
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║           FUNCIONES CORE              ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+#* Valida si la distro es UBUNTU
+VALIDAR_DISTRO(){
+  log_print info "Validando distribución..."
+  sleep 5
+
+  if [ -f /etc/os-release ]; then
+    . /etc/os-release
+  else
+    clear >&3
+    print_banner "⛔ No se pudo detectar la Distro‼️"
+    sleep 3
+    exit 1
+  fi
+
+  case "$ID" in
+    ubuntu|debian|linuxmint|pop|zorin|elementary|neon)
+      log_print ok "Distro soportada: $ID"
+      sleep 2
+      log_print info "Iniciando sistema..."
+      sleep 3
+      ;;
+    *)
+      clear >&3
+      print_banner "⛔ Distro no soportada: $ID"
+      sleep 3
+      exit 1
+      ;;
+  esac
+}
+#* Funcion que actualiza APT
+UPDATE(){
+	log_print info "Actualizando sistema..."
+	if ! $SUDO apt-get update; then
+		log_print verifail "Error en $SUDO apt-get update"
+    return 1
+  fi
+  if ! $SUDO apt-get dist-upgrade -y; then
+    log_print error "Error en dist-upgrade"
+    return 1
+  fi
+  log_print ok "Sistema actualizado correctamente."
+}
+#* Funcion de limpieza del sistema
+CLEAN_SYSTEM() {
+    log_print info "🧹 Iniciando limpieza del sistema..."
+    # Limpiar paquetes innecesarios
+    log_print ok "➤ Eliminando paquetes huérfanos..."
+    $SUDO apt-get autoremove -y
+    # Limpiar caché de paquetes descargados
+    log_print ok "➤ Limpiando caché de APT..."
+    $SUDO apt-get clean
+    $SUDO apt-get autoclean
+    # Limpiar logs antiguos
+    log_print ok "➤ Limpiando logs antiguos..."
+    $SUDO journalctl --vacuum-time=7d
+    # Limpiar miniaturas (thumbnails)
+    log_print ok "➤ Eliminando caché de miniaturas..."
+    $SUDO rm -rf "$USER_HOME/.cache/thumbnails/"*
+    # Limpiar caché de usuario
+    log_print ok "➤ Limpiando caché del usuario..."
+    rm -rf "$USER_HOME/.cache/"*
+    # Limpiar paquetes snap si existen
+    if command -v snap >/dev/null 2>&1; then
+        log_print ok "➤ Limpiando versiones antiguas de Snap..."
+        snap list --all | awk '/disabled/{print $1, $3}' | while read snapname revision; do
+            snap remove "$snapname" --revision="$revision"
+        done
+    fi
+		# Eliminar paquetes en estado "rc" (residuos de configs)
+		log_print ok "➤ Eliminando paquetes residuales..."
+		dpkg -l | awk '/^rc/ { print $2 }' | xargs -r $SUDO apt-get purge -y
+    log_print " Limpieza completada."
+		sleep 3
+}
+#* Función full update que llama a update_system y agrega Snap, Flatpak y firmware
+FULL_UPDATE() {
+    # Llamada a la función UPDATE
+    UPDATE || return 1
+    # Snap
+    if command -v snap >/dev/null 2>&1; then
+        log_print info "➤ Actualizando paquetes Snap..."
+        $SUDO snap refresh 2>/dev/null
+    fi
+    # Flatpak
+    if command -v flatpak >/dev/null 2>&1; then
+        log_print info "➤ Actualizando paquetes Flatpak..."
+        $SUDO flatpak update -y 2>/dev/null
+    fi
+    # Firmware (solo si es UEFI) / Microcode
+    if [ -d /sys/firmware/efi ]; then
+        if command -v fwupdmgr >/dev/null 2>&1; then
+            log_print info "➤ Actualizando firmware (UEFI)..."
+            $SUDO fwupdmgr refresh >/dev/null 2>&1
+            $SUDO fwupdmgr update >/dev/null 2>&1
+        fi
+    else
+        log_print warn "➤ Sistema en modo Legacy BIOS, se omite firmware."
+    fi
+    log_print ok "Actualización completa finalizada."
+}
+#* INSTALL_SNAP: Instala paquetes snap declarados en SNAP_TOOLS
+INSTALL_SNAP(){
+  log_print info "Instalando paquetes snap desde SNAP_TOOLS..."
+
+  if ! command -v snap >/dev/null 2>&1; then
+    log_print warn "snap no está instalado. Instalando snapd..."
+    $SUDO apt-get update -y
+    $SUDO apt-get install -y snapd
+    systemctl enable --now snapd.socket
+    ln -sf /var/lib/snapd/snap /snap
+  else
+    log_print ok "snap disponible"
+  fi
+
+  log_print info "Obteniendo lista de snaps instalados..."
+  local installed
+  installed="$(snap list | awk 'NR>1{print $1}')"
+
+  local pkg
+  for pkg in "${SNAP_TOOLS[@]}"; do
+    if echo "$installed" | grep -qx "$pkg"; then
+      log_print ok "$pkg ya está instalado"
+    else
+      log_print info "Instalando $pkg..."
+      if snap install "$pkg"; then
+        log_print ok "$pkg instalado ✔"
+      else
+        log_print error "Error instalando $pkg"
+      fi
+    fi
+  done
+
+  log_print ok "Instalación de paquetes SNAP finalizado"
+}
+#* INSTALL_APT: Instala paquetes usando APT_TOOLS
+INSTALL_APT() {
+  local pkg
+  log_print info "Instalando paquetes desde APT_TOOLS..."
+
+  for pkg in "${APT_TOOLS[@]}"; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+      log_print run "Instalando paquete: $pkg..."
+      
+      if ! $SUDO apt-get install -y "$pkg"; then
+        log_print warn "Paquete defectuoso: $pkg. Intentando desinstalar..."
+        $SUDO apt-get remove -y "$pkg" 2>/dev/null
+      else
+        log_print ok "Instalado correctamente: $pkg"
+      fi
+    else
+      log_print info "Ya está instalado: $pkg"
+    fi
+  done
+  log_print ok "Instalación de pauqetes APT finalizado"
+}
+#* INSTALL_BRAVE: Instala Brave
+INSTALL_BRAVE() {
+  log_print run "Instalando Brave Browser..."
+
+  # Asegurar curl
+  if ! dpkg -s curl &>/dev/null; then
+    log_print run "Instalando dependencia: curl..."
+    if ! $SUDO apt-get update -y; then
+      log_print warn "Fallo en apt-get update"
+      return 1
+    fi
+    if ! $SUDO apt-get install -y curl; then
+      log_print warn "No se pudo instalar curl"
+      return 1
+    fi
+  fi
+
+  # Limpieza previa (clave para evitar conflicto Signed-By)
+  log_print run "Limpiando configuraciones previas de Brave..."
+  $SUDO rm -f /etc/apt/sources.list.d/brave-browser*
+  $SUDO rm -f /usr/share/keyrings/brave-browser-archive-keyring.gpg
+  $SUDO rm -f /etc/apt/keyrings/brave-browser-archive-keyring.gpg
+
+  # Keyrings
+  if ! $SUDO mkdir -p /usr/share/keyrings; then
+    log_print warn "Error creando directorio keyrings"
+    return 1
+  fi
+
+  log_print run "Descargando keyring de Brave..."
+  if ! curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
+    | $SUDO tee /usr/share/keyrings/brave-browser-archive-keyring.gpg > /dev/null; then
+    log_print warn "Error descargando keyring"
+    return 1
+  fi
+
+	# Repo
+  log_print run "Agregando repositorio Brave..."
+  if ! curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser.sources \
+    | $SUDO tee /etc/apt/sources.list.d/brave-browser-release.sources > /dev/null; then
+    log_print warn "Error agregando repositorio"
+    return 1
+  fi
+
+  log_print run "Actualizando repositorios..."
+  if ! $SUDO apt-get update -y; then
+    log_print warn "Fallo en apt-get update"
+    return 1
+  fi
+
+  # Update + install
+  log_print run "Instalando brave-browser..."
+  if ! $SUDO apt-get install -y brave-browser; then
+    log_print warn "No se pudo instalar Brave"
+    return 1
+  fi
+
+  log_print ok "Brave instalado correctamente"
+	log_print ok "Versión" brave-browser --version
+}
+#* INSTALL_GOOGLE: Instala Google Chrome
+INSTALL_GOOGLE() {
+  log_print run "Instalación de Google Chrome..."
+
+  $SUDO rm -f /etc/apt/sources.list.d/google-chrome.list
+  $SUDO rm -f /etc/apt/keyrings/google-chrome.gpg
+
+  log_print run "Agregando clave oficial (keyring)..."
+
+  if ! $SUDO mkdir -p /etc/apt/keyrings; then
+    log_print warn "Error creando keyrings"
+    return 1
+  fi
+
+  if ! curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor | $SUDO tee /etc/apt/keyrings/google-chrome.gpg > /dev/null; then
+    log_print warn "Error importando clave"
+    return 1
+  fi
+
+  if ! $SUDO chmod 644 /etc/apt/keyrings/google-chrome.gpg; then
+    log_print warn "Error en permisos del keyring"
+    return 1
+  fi
+
+  log_print run "Agregando repositorio..."
+  if ! echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    | $SUDO tee /etc/apt/sources.list.d/google-chrome.list > /dev/null; then
+    log_print warn "Error agregando repo"
+    return 1
+  fi
+
+  log_print run "Actualizando repositorios..."
+  if ! $SUDO apt-get update; then
+    log_print warn "Fallo en apt-get update"
+    return 1
+  fi
+
+  log_print run "Instalando Google Chrome..."
+  if ! $SUDO apt-get install -y google-chrome-stable; then
+    log_print warn "No se pudo instalar Chrome"
+    return 1
+  fi
+
+  log_print ok "Google Chrome instalado correctamente"
+	log_print ok "Versión" google-chrome --version
+}
+#* REMOVE_FIREFOX: Desintala completamente Firefox del sistema, sin dejar residuos.
+REMOVE_FIREFOX(){
+  log_print info "Detectando instalación de Firefox..."
+
+  local found=false
+
+  # --- SNAP ---
+  if command -v snap >/dev/null 2>&1 && snap list 2>/dev/null | grep -q "^firefox"; then
+    log_print info "Firefox detectado como SNAP"
+    snap remove --purge firefox
+    $SUDO rm -rf /var/snap/firefox /var/lib/snapd/snaps/firefox*
+    found=true
+  fi
+
+  # --- APT ---
+  if dpkg -s firefox >/dev/null 2>&1; then
+    log_print info "Firefox detectado como paquete APT"
+    $SUDO apt-get purge -y firefox
+    $SUDO apt-get autoremove -y --purge
+    $SUDO rm -f /etc/apt/sources.list.d/*firefox*
+    found=true
+  fi
+
+  # --- FLATPAK ---
+  if command -v flatpak >/dev/null 2>&1 && flatpak list 2>/dev/null | grep -q "org.mozilla.firefox"; then
+    log_print info "Firefox detectado como FLATPAK"
+    flatpak uninstall -y org.mozilla.firefox --delete-data
+    $SUDO rm -rf /var/lib/flatpak/app/org.mozilla.firefox
+    found=true
+  fi
+
+  if [ "$found" = false ]; then
+    log_print warn "Firefox no está instalado por apt, snap ni flatpak"
+  fi
+
+  log_print info "Eliminando residuos..."
+
+  # --- USERS ---
+  local dir
+  for dir in /home/* /root; do
+    $SUDO rm -rf "$dir/.mozilla" \
+                  "$dir/.cache/mozilla" \
+                  "$dir/.config/firefox"
+  done
+
+  # --- BINARIOS ---
+  $SUDO rm -f /usr/bin/firefox /usr/local/bin/firefox
+
+  # --- SYSTEM ---
+  $SUDO rm -rf /usr/lib/firefox \
+          /usr/lib/firefox-esr \
+          /usr/share/firefox \
+          /etc/firefox
+
+  log_print ok "Firefox eliminado completamente"
+}
+#* INSTALL_NODE: NVM + Node LTS + npm + pnpm
+INSTALL_NODE() {
+	log_print run "Instalando Node.js (NVM)..."
+	local NVM_DIR="$USER_HOME/.nvm"
+	local NVM_SCRIPT="$NVM_DIR/nvm.sh"
+	# Limpieza previa (opcional, podés comentar si no querés reinstalar)
+	if [ -d "$NVM_DIR" ]; then
+		log_print warn "NVM ya existe, se reutilizará instalación"
+	fi
+	# Descargar e instalar NVM
+	log_print run "Descargando e instalando NVM..."
+	if ! curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash; then
+		log_print error "Error instalando NVM"
+		return 1
+	fi
+	# Cargar NVM en la sesión actual
+	log_print run "Cargando entorno NVM..."
+	if [ -s "$NVM_SCRIPT" ]; then
+		# shellcheck disable=SC1090
+		\. "$NVM_SCRIPT"
+	else
+		log_print error "No se encontró nvm.sh"
+		return 1
+	fi
+	# Instalar Node LTS (v24)
+	log_print run "Instalando Node.js v24..."
+	if ! nvm install 24; then
+		log_print error "Error instalando Node.js"
+		return 1
+	fi
+	if ! nvm use 24; then
+		log_print error "Error activando Node.js"
+		return 1
+	fi
+	# Verificar Node
+	if ! command -v node >/dev/null 2>&1; then
+		log_print error "Node no disponible"
+		return 1
+	fi
+	log_print run "Configurando entorno Node en .bashrc..."
+	local BASHRC="$USER_HOME/.bashrc"
+	if ! grep -q "NVM_DIR" "$BASHRC"; then
+		cat <<EOF >> "$BASHRC"
+		# NVM
+		export NVM_DIR="\$HOME/.nvm"
+		[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+		# PNPM
+		export PNPM_HOME="\$HOME/.local/share/pnpm"
+		export PATH="\$PNPM_HOME:\$PATH"
+EOF
+  fi
+
+  log_print ok "Entorno Node agregado a .bashrc"
+
+  # Activar corepack (incluye pnpm y yarn)
+  log_print run "Activando corepack..."
+  if ! corepack enable; then
+    log_print error "Error activando corepack"
+    return 1
+  fi
+
+  # Instalar última versión de pnpm
+  log_print run "Instalando pnpm..."
+  if ! corepack prepare pnpm@latest --activate; then
+    log_print error "Error instalando pnpm"
+    return 1
+  fi
+
+  # Verificar pnpm
+  if ! command -v pnpm >/dev/null 2>&1; then
+    log_print error "pnpm no disponible"
+    return 1
+  fi
+
+  # Actualizar npm a latest
+  log_print run "Actualizando npm..."
+  if ! npm install -g npm@latest; then
+    log_print error "Error actualizando npm"
+    return 1
+  fi
+
+  log_print ok "Node.js + pnpm + npm listos"
+	log_print ok "Node instalado: $(node -v)"
+  log_print ok "npm instalado: $(npm -v)"
+  log_print ok "pnpm instalado: $(pnpm -v)"
+}
+#* INSTALL_CODE: Instala vscode desde el repositorio de APT
+INSTALL_CODE() {
+  log_print run "Instalando Visual Studio Code..."
+
+  local KEYRING="/etc/apt/keyrings/microsoft.gpg"
+  local SOURCE_LIST="/etc/apt/sources.list.d/vscode.list"
+
+  log_print run "Limpiando instalaciones previas..."
+  $SUDO rm -f "$SOURCE_LIST"
+  $SUDO rm -f "$KEYRING"
+
+  # --- Limpieza previa ---
+  log_print INFO "Limpiando instalaciones previas de VS Code..."
+  if ! $SUDO apt-get update -y; then
+    log_print error "apt update falló"
+    return 1
+  fi
+
+	# --- Keyring ---
+  log_print RUN "Importando clave GPG (keyring)"
+  if ! $SUDO mkdir -p /etc/apt/keyrings; then
+    log_print error "Error creando keyrings"
+    return 1
+  fi
+
+  log_print run "Importando clave GPG"
+  if ! wget -qO- https://packages.microsoft.com/keys/microsoft.asc \
+    | gpg --dearmor | $SUDO tee "$KEYRING" > /dev/null; then
+    log_print error "No se pudo importar clave"
+    return 1
+  fi
+
+  if ! $SUDO chmod 644 "$KEYRING"; then
+    log_print error "Error permisos keyring"
+    return 1
+  fi
+
+  # --- Repo ---
+  log_print RUN "Agregando repositorio VS Code"
+  if ! echo "deb [arch=amd64 signed-by=$KEYRING] https://packages.microsoft.com/repos/vscode stable main" \
+    | $SUDO tee "$SOURCE_LIST" > /dev/null; then
+    log_print error "Error agregando repo"
+    return 1
+  fi
+
+  # --- Instalación ---
+  log_print RUN "Actualizando e instalando VSCode"
+  if ! $SUDO apt-get update -y; then
+    log_print error "apt update falló"
+    return 1
+  fi
+
+  log_print run "Instalando VSCode..."
+  if ! $SUDO apt-get install -y code; then
+    log_print error "Error instalando VS Code"
+    return 1
+  fi
+
+  log_print ok "VS Code instalado correctamente"
+	log_print ok "Versión" code --version
+
+}
+#* INSTALL_SUBLIMETEXT: Instala sublime text desde el repositorio de APT
+INSTALL_SUBLIMETEXT() {
+  log_print INFO "Instalando Sublime Text (APT)..."
+
+  local KEYRING="/etc/apt/keyrings/sublimehq-pub.asc"
+  local SOURCE_FILE="/etc/apt/sources.list.d/sublime-text.sources"
+
+  # --- LIMPIEZA PREVIA ---
+  log_print INFO "Eliminando configuraciones previas..."
+  $SUDO rm -f "$SOURCE_FILE"
+  $SUDO rm -f "$KEYRING"
+
+  # --- PREPARAR DIRECTORIO KEYRINGS ---
+  $SUDO install -d -m 0755 /etc/apt/keyrings
+
+  # --- IMPORTAR CLAVE GPG ---
+  log_print INFO "Importando clave GPG..."
+  wget -qO - https://download.sublimetext.com/sublimehq-pub.gpg \
+    |$SUDO tee "$KEYRING" > /dev/null
+
+  $SUDO chmod 0644 "$KEYRING"
+
+  # --- AGREGAR REPOSITORIO (STABLE) ---
+  log_print INFO "Agregando repositorio APT (stable)..."
+  cat <<EOF | $SUDO tee "$SOURCE_FILE" > /dev/null
+Types: deb
+URIs: https://download.sublimetext.com/
+Suites: apt/stable/
+Signed-By: $KEYRING
+EOF
+
+  # --- ACTUALIZAR E INSTALAR ---
+  log_print INFO "Actualizando índices APT..."
+  $SUDO apt-get update -y
+
+  log_print INFO "Instalando Sublime Text..."
+  if $SUDO apt-get install -y sublime-text; then
+    log_print OK "Sublime Text instalado correctamente"
+    log_print ok "Versión" subl --version
+
+  else
+    log_print ERROR "Error al instalar Sublime Text"
+    return 1
+  fi
+}
+#* INSTALL_PROTONVPN: Instala protonVPN desde el repositorio de APT
+INSTALL_PROTONVPN() {
+  log_print INFO "Instalando Proton VPN (APT repo oficial)..."
+
+  local TMP_DEB="/tmp/protonvpn-stable-release.deb"
+  local EXPECTED_SHA="0b14e71586b22e498eb20926c48c7b434b751149b1f2af9902ef1cfe6b03e180"
+
+  # --- LIMPIEZA PREVIA ---
+  log_print INFO "Limpiando instalaciones previas..."
+  $SUDO apt-get purge -y protonvpn protonvpn-cli proton-vpn-gnome-desktop || true
+  $SUDO rm -f /etc/apt/sources.list.d/protonvpn*.list
+  $SUDO rm -f /etc/apt/sources.list.d/protonvpn*.sources
+  $SUDO rm -f /usr/share/keyrings/protonvpn* 2>/dev/null || true
+
+  # --- DESCARGA ---
+  log_print INFO "Descargando paquete del repositorio..."
+  wget -q -O "$TMP_DEB" \
+    https://repo.protonvpn.com/debian/dists/stable/main/binary-all/protonvpn-stable-release_1.0.8_all.deb
+
+  # --- VERIFICACIÓN SHA256 ---
+  log_print INFO "Verificando integridad del paquete..."
+  echo "${EXPECTED_SHA}  ${TMP_DEB}" | sha256sum --check --status
+  if [ $? -ne 0 ]; then
+    log_print ERROR "Checksum inválido. Abortando instalación."
+    $SUDO rm -f "$TMP_DEB"
+    return 1
+  fi
+
+  # --- INSTALACIÓN DEL REPO ---
+  log_print INFO "Instalando repositorio Proton VPN..."
+  $SUDO dpkg -i "$TMP_DEB"
+  $SUDO apt-get update
+
+  # --- INSTALACIÓN APP ---
+  log_print INFO "Instalando aplicación Proton VPN..."
+  $SUDO apt-get install -y proton-vpn-gnome-desktop
+
+  # --- OPCIONAL: TRAY ICON ---
+  log_print INFO "Instalando soporte para icono en bandeja (opcional)..."
+  $SUDO apt-get install -y gnome-shell-extension-appindicator gnome-shell-extension-prefs
+
+  # --- LIMPIEZA ---
+  $SUDO rm -f "$TMP_DEB"
+
+  log_print OK "Proton VPN instalado correctamente"
+}
+#* INSTALL_TIMESHIFT: Instala timeshift desde el repositorio de APT
+INSTALL_TIMESHIFT() {
+  log_print INFO "Instalando Timeshift desde repositorio oficial APT..."
+
+  # --- Limpiar residuos de PPA inválido ---
+  if ls /etc/apt/sources.list.d/teejee2008-ubuntu-ppa*.list >/dev/null 2>&1; then
+    log_print INFO "Eliminando PPA obsoleto de Timeshift..."
+    $SUDO rm -f /etc/apt/sources.list.d/teejee2008-ubuntu-ppa*.list
+  fi
+
+  # --- Actualizar índices ---
+  log_print INFO "Actualizando índices APT..."
+  $SUDO apt-get update -y || { log_print ERROR "$SUDO apt-get update falló"; return 1; }
+
+  # --- Instalar Timeshift desde repo oficial ---
+  log_print INFO "Instalando Timeshift..."
+  $SUDO apt-get install -y timeshift || { log_print ERROR "No se pudo instalar Timeshift"; return 1; }
+
+  # --- Verificación ---
+  if command -v timeshift >/dev/null 2>&1; then
+    log_print OK "Timeshift instalado correctamente"
+	log_print ok "Versión" timeshift --version
+  else
+    log_print ERROR "Timeshift no se encuentra después de la instalación"
+    return 1
+  fi
+}
+#* OS_INFO: Brinda información del sistema
+OS_INFO() {
+  mkdir -p "$USER_HOME/temp/OS_Info"
+  TMP_DIR_OS_INFO="$(mktemp -d "$USER_HOME/temp/OS_Info/temp.XXXXXX")"
+
+  cleanup_osinfo() { [[ -n "${TMP_DIR_OS_INFO:-}" && -d "$TMP_DIR_OS_INFO" ]] && $SUDO rm -rf "$TMP_DIR_OS_INFO"; }
+  trap cleanup_osinfo EXIT
+
+  log_print run " Recopilando información del OS..."
+
+  {
+    source /etc/os-release
+    printf "%s\n" "$NAME|$VERSION|$VERSION_ID|$ID_LIKE" > "$TMP_DIR_OS_INFO/os"
+    log_print verify " OS info"
+  } &
+
+  {
+    CPU=$(grep "model name" /proc/cpuinfo | head -n1 | cut -d ':' -f2 | xargs)
+    CORES=$(nproc)
+    printf "%s\n" "$CPU|$CORES" > "$TMP_DIR_OS_INFO/cpu"
+    log_print verify " CPU info"
+  } &
+
+  {
+    GPU=$(lspci 2>/dev/null | grep -i 'vga\|3d\|2d' | head -n1 | cut -d ':' -f3- | xargs)
+    GPU=$(printf "%s\n" "$GPU" \
+      | sed -E 's/Corporation//g' \
+      | sed -E 's/Core Processor//g' \
+      | sed -E 's/Integrated Graphics Controller/Integrated Graphics/g' \
+      | sed -E 's/\(rev [^)]+\)//g' \
+      | xargs)
+    printf "%s\n" "$GPU" > "$TMP_DIR_OS_INFO/gpu"
+    log_print verify " GPU info"
+  } &
+
+  {
+    PKG=$(dpkg -l 2>/dev/null | grep -c "^ii")
+    SNAP=$(snap list 2>/dev/null | tail -n +2 | wc -l)
+    printf "%s\n" "$PKG|$SNAP" > "$TMP_DIR_OS_INFO/pkg"
+    log_print verify " Packages info"
+  } &
+
+  {
+    MODEL=$(cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || printf "N/A")
+    VENDOR=$(cat /sys/devices/virtual/dmi/id/sys_vendor 2>/dev/null || printf "")
+    BIOS=$(cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null || printf "N/A")
+    printf "%s\n" "$VENDOR $MODEL|$BIOS" > "$TMP_DIR_OS_INFO/hw"
+    log_print verify " Hardware info"
+  } &
+
+  {
+    KERNEL=$(uname -r)
+    ARCH=$(uname -m)
+    [[ "$ARCH" = "x86_64" ]] && OS_TYPE="64-bit" || OS_TYPE="32-bit"
+    GNOME=$(gnome-shell --version 2>/dev/null | awk '{print $3}' || printf "N/A")
+    SESSION=${XDG_SESSION_TYPE:-unknown}
+    printf "%s\n" "$KERNEL|$OS_TYPE|$GNOME|$SESSION" > "$TMP_DIR_OS_INFO/sw"
+    log_print verify " Software info"
+  } &
+
+  wait
+}
+GET_OSINFO() {
+  case "$1" in
+    user) echo "${SUDO_USER:-$(whoami)}" ;;
+    host) hostname ;;
+    shell) basename "$SHELL" ;;
+    shell_version) "$SHELL" --version | head -n1 | awk '{print $NF}' ;;
+    ram) free -h | awk '/Mem:/ {print $3 " / " $2}' ;;
+    disk) df -h / | awk 'NR==2 {print $3 " / " $2 " (" $5 ")"}' ;;
+
+    os_name) source /etc/os-release; echo "$NAME" ;;
+    os_version) source /etc/os-release; echo "$VERSION" ;;
+    os_type) [[ "$(uname -m)" = "x86_64" ]] && echo "64-bit" || echo "32-bit" ;;
+
+    cpu) grep "model name" /proc/cpuinfo | head -n1 | cut -d ':' -f2 | xargs ;;
+    cores) nproc ;;
+    gpu) lspci 2>/dev/null | grep -i 'vga\|3d\|2d' | head -n1 | cut -d ':' -f3- | xargs \
+          | sed -E 's/Corporation//g;s/Core Processor//g;s/Integrated Graphics Controller/Integrated Graphics/g;s/\(rev [^)]+\)//g' | xargs ;;
+    pkg) dpkg -l 2>/dev/null | grep -c "^ii" ;;
+    snap) snap list 2>/dev/null | tail -n +2 | wc -l ;;
+
+    hw_model) cat /sys/devices/virtual/dmi/id/product_name 2>/dev/null || echo "N/A" ;;
+    firmware) cat /sys/devices/virtual/dmi/id/bios_version 2>/dev/null || echo "N/A" ;;
+
+    kernel) uname -r ;;
+    gnome) gnome-shell --version 2>/dev/null | awk '{print $3}' || echo "N/A" ;;
+    session) echo "${XDG_SESSION_TYPE:-unknown}" ;;
+  esac
+}
+INFO_OSINFO() {
+  {
+    printf "%s\n" "# 🖥️ OS Info"
+    printf "%s\n" ""
+
+    printf "%s\n" "## 👤 Usuario"
+    printf "%s\n" "- **User:** $(GET_OSINFO user)"
+    printf "%s\n" "- **Host:** $(GET_OSINFO host)"
+    printf "%s\n" ""
+
+    printf "%s\n" "## 💿 Información de software"
+    printf "%s\n" "- **OS:** $(GET_OSINFO os_name) $(GET_OSINFO os_type)"
+    printf "%s\n" "- **Versión:** $(GET_OSINFO os_version)"
+    printf "%s\n" "- **Versión del núcleo:** $(GET_OSINFO kernel)"
+    printf "%s\n" "- **Versión de GNOME:** $(GET_OSINFO gnome)"
+    printf "%s\n" "- **Sistema de ventanas:** $(GET_OSINFO session)"
+    printf "%s\n" "- **Shell:** $(GET_OSINFO shell) $(GET_OSINFO shell_version)"
+    printf "%s\n" "- **Paquetes:** $(GET_OSINFO pkg) (dpkg), $(GET_OSINFO snap) (snap)"
+    printf "%s\n" ""
+
+    printf "%s\n" "## ⚙️ Información de hardware"
+    printf "%s\n" "- **Modelo de hardware:** $(GET_OSINFO hw_model)"
+    printf "%s\n" "- **Versión de firmware:** $(GET_OSINFO firmware)"
+    printf "%s\n" "- **CPU:** $(GET_OSINFO cpu) ($(GET_OSINFO cores) cores)"
+    printf "%s\n" "- **GPU:** $(GET_OSINFO gpu)"
+    printf "%s\n" "- **RAM:** $(GET_OSINFO ram)"
+    printf "%s\n" "- **Disk:** $(GET_OSINFO disk)"
+    printf "%s\n" ""
+
+    printf "%s\n" "---"
+    printf "%s\n" "**Fecha de generación:** $(datetime)"
+    printf "%s\n" ""
+  } > "$USER_HOME/OS_Info.md"
+
+  log_print ok "Markdown guardado en $USER_HOME/OS_Info.md"
+}
+RENDER_OSINFO() {
+	{
+
+  printf "%s\n" ""
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[ok]}${SUDO_USER:-$(whoami)}@$HOSTNAME${COLOR[reset]}"
+  printf "%s\n" "      	----------------------"
+  printf "%s\n" ""
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[cyan]}Información del hardware${COLOR[reset]}"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}OS:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO os_name) $(GET_OSINFO os_type)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Version:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO os_version)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Kernel:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO kernel)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}GNOME:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO gnome)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Session:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO session)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Shell:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO shell) $(GET_OSINFO shell_version)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Packages:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO pkg) (dpkg), $(GET_OSINFO snap) (snap)"
+  printf "%s\n" ""
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[cyan]}Información del software${COLOR[reset]}"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Modelo:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO hw_model)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Firmware:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO firmware)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}CPU:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO cpu) ($(GET_OSINFO cores))"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}GPU:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO gpu)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}RAM:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO ram)"
+  printf "%b%-40s%b\n" "        ${COLOR[bold]}${COLOR[italic]}${COLOR[warn]}Disk:${COLOR[reset]}${COLOR[italic]}${COLOR[gray]} $(GET_OSINFO disk)"
+  printf "%s\n" ""
+  printf "%b%-40s%b\n" "      	 ${COLOR[ok]}📅 $(datetime)${COLOR[reset]}"
+  printf "%b%-40s%b\n" "      	 ${COLOR[ok]}✔️ Info de sistema en $USER_HOME/OS_Info.md${COLOR[reset]}"
+  printf "%b%-40s%b\n" "      	 ${COLOR[ok]}✔️ Info de instalación en $USER_HOME/setup.log${COLOR[reset]}"
+	printf "%s\n" ""
+  printf "      	    Presioná SPACE para continuar..." >&3
+	read -n 1 -s -r </dev/tty
+	} >&3
+}
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║            FUNCION MAIN()             ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+main() {
+  exec 3>&1
+  START=$SECONDS
+  clear >&3
+  file_log
+  logo
+  printf "%s\n" ""
+  print_banner " 	   🚀 Iniciando Secuencia Post-Install..."
+  printf "%s\n" ""
+  VALIDAR_DISTRO
+  UPDATE
+  INSTALL_SNAP
+  INSTALL_APT
+  INSTALL_BRAVE
+  INSTALL_GOOGLE
+  REMOVE_FIREFOX
+	INSTALL_NODE
+  INSTALL_CODE
+  INSTALL_SUBLIMETEXT
+  INSTALL_PROTONVPN
+  INSTALL_TIMESHIFT
+  OS_INFO
+  FULL_UPDATE
+  INFO_OSINFO
+  TIEMPO_TOTAL="$(elapsed_time "$START")"
+  clear >&3
+  RENDER_OSINFO
+  printf "%s\n" ""
+  clear >&3
+  print_banner "         🎉 Secuencia Post-Install completada con éxito!!!
+              Fecha: $(datetime date)
+              Hora de inicio: $START_INITIAL
+              Hora de fin   : $(datetime time)
+              Tiempo total  : $TIEMPO_TOTAL"
+  printf "            Presioná SPACE para continuar..." >&3
+  read -n 1 -s -r </dev/tty
+  rm -rf "$USER_HOME/temp"
+  clear >&3
+}
+main "$@"
 IFS=$'\n\t'
 
 #//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
