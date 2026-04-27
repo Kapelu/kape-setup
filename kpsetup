@@ -927,15 +927,18 @@ git_prompt_status() {
   local branch dirty ahead behind
   branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD)
 
+  # Cambios locales reales
   if ! git diff --quiet --ignore-submodules --cached || ! git diff --quiet --ignore-submodules; then
     dirty=1
   fi
 
+  # Conflictos
   if git ls-files -u | grep -q .; then
-    printf "\033[38;5;196m[%s]\033[0m" "$branch"
+    printf "\033[38;5;196m[%s]\033[0m" "$branch"  # 🔴 conflictos
     return
   fi
 
+  # Ahead / Behind respecto al upstream
   if git rev-parse --abbrev-ref @{u} &>/dev/null; then
     read ahead behind < <(git rev-list --left-right --count HEAD...@{u})
   else
@@ -944,14 +947,13 @@ git_prompt_status() {
   fi
 
   if [ "$dirty" = "1" ]; then
-    printf "\033[38;5;220m[%s]\033[0m" "$branch"
+    printf "\033[38;5;220m[%s]\033[0m" "$branch"  # 🟡 cambios locales
   elif [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ]; then
-    printf "\033[38;5;214m[%s]\033[0m" "$branch"
+    printf "\033[38;5;214m[%s]\033[0m" "$branch"  # 🟠 no sincronizado (push/pull)
   else
-    printf "\033[38;5;82m[%s]\033[0m" "$branch"
+    printf "\033[38;5;82m[%s]\033[0m" "$branch"   # 🟢 limpio y sincronizado
   fi
 }
-
 # CACHE PROMPT (sin overhead)
 update_prompt_cache() {
   local manager
@@ -962,8 +964,10 @@ update_prompt_cache() {
 
 PROMPT_COMMAND=update_prompt_cache
 
+# PROMPT FINAL
 PS1=' \[\033[01;32m\]\h:\[\033[01;34m\]${__PKG_MANAGER}${__GIT_BRANCH} \[\033[00m\]\w \[\033[01;34m\]\$ \[\033[00m\]'
 
+# TÍTULO XTERM (se mantiene)
 case "$TERM" in
 xterm*|rxvt*)
     PS1="\[\e]0;${__PKG_MANAGER}${__GIT_BRANCH}kapelu \w\a\]$PS1"
@@ -972,9 +976,11 @@ xterm*|rxvt*)
     ;;
 esac
 
+# NVM
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
 EOF
   # aplicar sin reiniciar
   source "$target"
