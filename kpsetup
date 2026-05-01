@@ -576,7 +576,7 @@ INSTALL_SNAP(){
       log_print ok "$pkg_name ya está instalado"
     else
       log_print info "Instalando $pkg..."
-      if snap install $pkg; then
+      if $SUDO snap install $pkg; then
         log_print ok "$pkg_name instalado ✔"
       else
         log_print error "Error instalando $pkg_name"
