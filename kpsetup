@@ -12,18 +12,27 @@
 #//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
 # Detectar sudo
 if [[ $EUID -ne 0 ]]; then
-		SUDO="sudo"
-	else
-		SUDO=""
+  SUDO="sudo"
+else
+  SUDO=""
 fi
 
 # Forzar autenticación sudo al inicio
 if [[ -n "$SUDO" ]]; then
-	clear
+  clear
   printf "%s\n"
   printf "%b%-40s%b\n" "\e[3;32m[+] Elevando privilegios sudo...\e[0m\e[3;90m"
-  sudo -v -p "[sudo] contraseña: " || exit 1
+  $SUDO -v -p "[sudo] contraseña: " || exit 1
   printf "%s\n" "\e[0m"
+
+  # Mantener sudo vivo en background
+  (
+    while true; do
+      $SUDO -n true
+      sleep 60
+      kill -0 "$$" || exit
+    done
+  ) 2>/dev/null &
 fi
 
 set -Eeuo pipefail
@@ -292,42 +301,48 @@ CLEAN_SYSTEM() {
 }
 #* Función full update que llama a update_system y agrega Snap, Flatpak y firmware
 FULL_UPDATE() {
-    # Llamada a la función UPDATE
-    UPDATE || return 1
-    # Snap
-    if command -v snap >/dev/null 2>&1; then
-        log_print info "➤ Actualizando paquetes Snap..."
-        $SUDO snap refresh 2>/dev/null
-    fi
-    # Flatpak
-    if command -v flatpak >/dev/null 2>&1; then
-        log_print info "➤ Actualizando paquetes Flatpak..."
-        $SUDO flatpak update -y 2>/dev/null
-    fi
-    # Firmware (solo si es UEFI) / Microcode
-    if [ -d /sys/firmware/efi ]; then
-        if command -v fwupdmgr >/dev/null 2>&1; then
-            log_print info "➤ Actualizando firmware (UEFI)..."
-            $SUDO fwupdmgr refresh >/dev/null 2>&1
-            $SUDO fwupdmgr update >/dev/null 2>&1
-        fi
+  UPDATE || return 1
+
+  # Snap
+  if command -v snap >/dev/null 2>&1 && systemctl is-active --quiet snapd; then
+    log_print info "➤ Actualizando paquetes Snap..."
+    $SUDO snap refresh || log_print warn "Snap refresh falló"
+  fi
+
+  # Flatpak
+  if command -v flatpak >/dev/null 2>&1; then
+    if flatpak remotes | grep -q .; then
+      log_print info "➤ Actualizando paquetes Flatpak..."
+      $SUDO flatpak update -y || log_print warn "Flatpak update falló"
     else
-        log_print warn "➤ Sistema en modo Legacy BIOS, se omite firmware."
+      log_print warn "Flatpak sin repos configurados"
     fi
-    log_print ok "Actualización completa finalizada."
+  fi
+
+  # Firmware
+  if [ -d /sys/firmware/efi ] && command -v fwupdmgr >/dev/null 2>&1; then
+    log_print info "➤ Actualizando firmware (UEFI)..."
+    $SUDO fwupdmgr refresh --force || log_print warn "fwupdmgr refresh falló"
+    $SUDO fwupdmgr update -y || log_print warn "fwupdmgr update falló"
+  else
+    log_print warn "➤ Sistema en modo Legacy BIOS o fwupdmgr no disponible"
+  fi
+
+  log_print ok "Actualización completa finalizada."
 }
 
 #* PERSONALIZE_UBUNTU: Función que personaliza Escritorio y temas visuales, energia, dock y seguridad
 PERSONALIZE_UBUNTU() {
   log_print info "Personalizando .bashrc"
-	rebuild_bashrc() {
-  local target="$HOME/.bashrc"
 
-  # eliminar sin preguntar
-  rm -f "$target"
+  rebuild_bashrc() {
+    local target="$USER_HOME/.bashrc"
 
-  # crear archivo
-  cat > "$target" <<'EOF'
+    # eliminar sin preguntar
+    rm -f "$target"
+
+    # crear archivo
+    cat > "$target" <<'EOF'
 # ╔════════════════════════════════════════════════════╗
 # │ .bashrc                                            │
 # │ Versión: 3.0                                       │
@@ -542,10 +557,18 @@ esac
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 [ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
 EOF
-  # aplicar sin reiniciar
-  source "$target"
-}
+
+    # asegurar permisos correctos del usuario real
+    chown "${SUDO_USER:-$USER}":"${SUDO_USER:-$USER}" "$target"
+
+    # aplicar sin reiniciar (solo si es el mismo usuario)
+    if [[ "$USER_HOME" == "$HOME" ]]; then
+      source "$target"
+    fi
+  }
+  rebuild_bashrc
 
   log_print ok "✔ Personalización completa"
 }
@@ -576,10 +599,10 @@ INSTALL_SNAP(){
       log_print ok "$pkg_name ya está instalado"
     else
       log_print info "Instalando $pkg..."
-      if $SUDO snap install $pkg; then
+      if $SUDO snap install "${args[@]}"; then
         log_print ok "$pkg_name instalado ✔"
       else
-        log_print error "Error instalando $pkg_name"
+       log_print error "Error instalando $pkg_name"
       fi
     fi
   done
@@ -1166,16 +1189,16 @@ main() {
   printf "%s\n" ""
   VALIDAR_DISTRO
   UPDATE
-  PERSONALIZE_UBUNTU
   INSTALL_SNAP
   INSTALL_APT
   INSTALL_BRAVE
   INSTALL_GOOGLE
   REMOVE_FIREFOX
-	INSTALL_NODE
+  INSTALL_NODE
   INSTALL_CODE
   INSTALL_PROTONVPN
   INSTALL_TIMESHIFT
+  PERSONALIZE_UBUNTU
   OS_INFO
   FULL_UPDATE
   INFO_OSINFO
