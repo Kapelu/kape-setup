@@ -968,6 +968,58 @@ INSTALL_CODE() {
 	log_print ok "Versión" code --version
 
 }
+
+#* INSTALL_DOCKER: Instala Docker desde el repositorio de APT
+INSTALL_DOCKER() {
+  print "🐳 Instalando Docker..."
+
+  log "Actualizando índices de paquetes"
+  $SUDO apt update
+
+  log "Instalando dependencias necesarias"
+  $SUDO apt install -y ca-certificates curl
+
+  log "Creando directorio de keyrings"
+  $SUDO install -m 0755 -d /etc/apt/keyrings
+
+  log "Descargando clave GPG oficial de Docker"
+  $SUDO curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    -o /etc/apt/keyrings/docker.asc
+
+  log "Asignando permisos a la clave"
+  $SUDO chmod a+r /etc/apt/keyrings/docker.asc
+
+  log "Agregando repositorio oficial de Docker"
+  $SUDO tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+  log "Actualizando índices con el nuevo repositorio"
+  $SUDO apt update
+
+  log "Instalando Docker"
+  $SUDO apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  log "Verificando estado del servicio Docker"
+  if ! systemctl is-active --quiet docker; then
+    print "⚠️ Docker no está activo. Iniciando servicio..."
+    $SUDO systemctl start docker
+  fi
+
+  log "Mostrando estado de Docker"
+  $SUDO systemctl status docker --no-pager
+
+  log "Ejecutando contenedor de prueba hello-world"
+  $SUDO docker run hello-world
+	sleep 10
+  print "✅ Docker instalado correctamente"
+}
+
 #* INSTALL_PROTONVPN: Instala protonVPN desde el repositorio de APT
 INSTALL_PROTONVPN() {
   log_print INFO "Instalando Proton VPN (APT repo oficial)..."
