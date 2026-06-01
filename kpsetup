@@ -1,0 +1,1410 @@
+#!/usr/bin/env bash
+# ┌<<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>>┐
+# │  Install – Instalador Post-Install de Ubuntu   │
+# │  Versión: 3.0                                  │
+# │  Autor: Daniel Calderon - Kapelu               │
+# │  Fecha: 04-07-2025                             │
+# │  WebSite: https://danielcalderon.vercel.app/   │
+# │  Github: https://github.com/Kapelu             │
+# └<<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>><<>>┘
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║    ELEVACION DE PRIVILEGIOS SUDO      ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+# Detectar sudo
+if [[ $EUID -ne 0 ]]; then
+  SUDO="sudo"
+else
+  SUDO=""
+fi
+
+# Forzar autenticación sudo al inicio
+if [[ -n "$SUDO" ]]; then
+  clear
+  printf "%s\n"
+  printf "%b%-40s%b\n" "\e[3;32m[+] Elevando privilegios sudo...\e[0m\e[3;90m" $SUDO -v -p "[sudo] contraseña: " || exit 1
+  printf "%s\n" "\e[0m"
+
+  # Mantener sudo vivo en background
+  (
+    while true; do
+      $SUDO -n true
+      sleep 60
+      kill -0 "$$" || exit
+    done
+  ) 2>/dev/null &
+fi
+
+set -Eeuo pipefail
+IFS=$'\n\t'
+
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║              VARIABLES                ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+USUARIO=$(whoami)
+HOSTNAME=$(hostname)
+START=$SECONDS
+REAL_USER="${SUDO_USER:-}"
+REAL_USER="${REAL_USER:-$USER}"
+USER_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
+ROOT_HOME="/root"
+LOG_FILE="$USER_HOME/setup.log"
+START_INITIAL="$(date +"%H:%M:%S")"
+APT_TOOLS=(
+	software-properties-common
+	gnome-shell-extension-desktop-icons-ng
+	gnome-shell-extensions
+  gnome-tweaks
+  dconf-cli
+	apt-transport-https
+	curl
+  wget
+  pciutils
+  gpg
+  git
+  lsd
+  speedtest-cli
+  dialog
+  inotify-tools
+  totem
+  rhythmbox
+	libappindicator3-1
+	libayatana-appindicator3-1
+)
+SNAP_TOOLS=( 
+  "jdownloader2"
+  "sublime-text --classic"
+    )
+declare -gA COLOR=(
+  [reset]=$'\e[0m'      # Reset / color normal
+  [bold]=$'\e[1m'       # Negrita
+  [italic]=$'\e[3m'     # Cursiva (no siempre soportado)
+
+  [error]=$'\e[31m'     # Rojo
+  [ok]=$'\e[32m'        # Verde
+  [warn]=$'\e[33m'      # Amarillo
+  [info]=$'\e[34m'      # Azul
+
+  [black]=$'\e[30m'     # Negro
+  [red]=$'\e[31m'       # Rojo
+  [green]=$'\e[32m'     # Verde
+  [yellow]=$'\e[33m'    # Amarillo brillante(reemplazar 3 x 9)
+  [blue]=$'\e[34m'      # Azul
+  [magenta]=$'\e[35m'   # Magenta / violeta
+  [cyan]=$'\e[36m'      # Cyan
+  [white]=$'\e[37m'     # Blanco
+  [gray]=$'\e[90m'      # Gris (foreground)
+  [green_gray]=$'\e[32;40m'    # verde brillante + fondo negro
+  [yellow_gray]=$'\e[93;40m'   # amarillo brillante + fondo negro
+)
+# Iconos de .log
+ICON_INFO="🟢"
+ICON_OK="✅"
+ICON_WARN="⚠️"
+ICON_ERROR="❌"
+ICON_RUN="⚙️"
+ICON_VERIFY="✔️"
+ICON_VERIFAIL="⛔"
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║         FUNCIONES UTILITARIAS         ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+#* Crea $USER_HOME/setup.log 
+file_log() {
+  exec 3>&1
+  exec 1>>"$LOG_FILE" 2>&1
+  clear >&3
+  HEADER="          ===== START -> kapelu $(date '+%Y-%m-%d %H:%M:%S') ====="
+  printf "%s\n" "$HEADER"        # 👉 va al log
+  printf "%s\n" "" >&3
+  printf "%s\n" "$HEADER" >&3    # 👉 se ve en pantalla
+}
+#* datetime: manejo de fecha y hora
+datetime() {
+  local fecha hora
+  fecha="$(date +"%d-%m-%Y")"
+  hora="$(date +"%H:%M:%S")"
+
+  case "${1:-full}" in            #    Uso 
+    date) printf "%s\n" "$fecha" ;;        # printf "%s\n" "$(datetime date)" 
+    time) printf "%s\n" "$hora" ;;         # printf "%s\n" "$(datetime time)"
+    *) printf "%s\n" "$fecha - $hora" ;;   # printf "%s\n" "$(datetime)"     
+  esac
+}
+#* elapsed_time: maneja el tiempo de instalación del script
+elapsed_time() {
+  local start="$1"
+  local elapsed=$((SECONDS - start))
+
+  local horas=$((elapsed / 3600))
+  local minutos=$(((elapsed % 3600) / 60))
+  local segundos=$((elapsed % 60))
+
+  printf "%dh:%dm:%ds" "$horas" "$minutos" "$segundos"
+}
+#* log_*: maneja los los en pantalla y archivo.log
+log_print(){
+  # ╔══════════════════════════════════════════════════════════════════════════════╗
+  # ║ Uso                                   │ Salida en consola (.log sin color)   ║
+  # ╠═══════════════════════════════════════╪══════════════════════════════════════╣
+  # ║ log_info "Iniciando kpsetup..."       │ 🟩 Iniciando kpsetup...              ║
+  # ║ log_run "Instalando dependencias..."  │ ⚙️ Instalando dependencias...        ║
+  # ║ log_verify "Node.js" node -v          │ ✔️ Node.js version: 20.2.0           ║
+  # ║ log_verify "npm" npm -v               │ ⛔ npm no disponible                 ║
+  # ║ log_ok "Instalación completada"       │ ✅ Instalación completada            ║
+  # ║ log_warn "Archivos sin usar"          │ ⚠️ Algunos archivos sin usar         ║
+  # ║ log_error "Errores menores"           │ ❌ Se detectaron errores menores     ║
+  # ╚═══════════════════════════════════════╧══════════════════════════════════════╝
+
+  local type="$1"
+  local msg="$2"
+  local icon color text
+
+  case "$type" in
+    info)     icon="$ICON_INFO";     color="yellow" ;;
+    ok)       icon="$ICON_OK";       color="yellow" ;;
+    warn)     icon="$ICON_WARN";     color="yellow" ;;
+    error)    icon="$ICON_ERROR";    color="yellow" ;;
+    run)      icon="$ICON_RUN";      color="yellow" ;;
+    verify)   icon="$ICON_VERIFY";   color="yellow" ;;
+    verifail) icon="$ICON_VERIFAIL"; color="yellow" ;;
+    *)        icon="";               color="yellow" ;;
+  esac
+
+  text="$msg"
+
+  local timestamp
+  timestamp="$(datetime time)"
+
+  local console_line="              $timestamp ~${COLOR[$color]} ${text}${COLOR[reset]}"
+  local log_line="$timestamp ~${text}"
+
+  {
+    flock -x 200
+
+    # consola
+    printf "%b%-30s%b\n" "$console_line" >&3
+
+    # log
+    if [ -n "$LOG_FILE" ]; then
+      printf "%s\n" "$log_line" >>"$LOG_FILE"
+    fi
+  } 200>/tmp/kapelu.lock
+}
+
+versioned_write() {
+  local target="$1"
+  local tmp backup_dir timestamp
+
+  tmp="$(mktemp)"
+  backup_dir="$HOME/.bashrc.backups"
+  timestamp="$(date +%Y%m%d-%H%M%S)"
+
+  mkdir -p "$backup_dir"
+
+  # generar contenido desde stdin
+  cat > "$tmp"
+
+  # si existe y no cambió, salir
+  if [ -f "$target" ] && cmp -s "$tmp" "$target"; then
+    rm -f "$tmp"
+    return 0
+  fi
+
+  # backup si existe
+  if [ -f "$target" ]; then
+    cp "$target" "$backup_dir/bashrc.$timestamp"
+  fi
+
+  install -m 644 "$tmp" "$target"
+  rm -f "$tmp"
+}
+
+rebuild_bashrc() {
+  local target="$1"
+
+  versioned_write "$target" <<'EOF'
+# ╔════════════════════════════════════════════════════╗
+# │ .bashrc                                            │
+# │ Versión: 3.0                                       │
+# │ Autor: Daniel Calderon - Kapelu                    │
+# │ Fecha: 04/03/2026                                  │
+# │ WebSite: https://danielcalderon.vercel.app/        │
+# │ Github: https://github.com/Kapelu                  │
+# ╚════════════════════════════════════════════════════╝
+# ~/.bashrc: executed by bash(1) for non-login shells.
+# see /usr/share/doc/bash/examples/startup-files (in the package bash-doc)
+# for examples
+
+# Solo ejecutar en shells interactivos
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# HISTORIAL
+HISTCONTROL=ignoreboth
+shopt -s histappend
+HISTSIZE=1000
+HISTFILESIZE=2000
+
+# SHELL OPTIONS
+shopt -s checkwinsize
+
+# LESSPIPE
+[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+# CHROOT
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
+
+# COLOR SUPPORT
+case "$TERM" in
+    xterm-color|*-256color) color_prompt=yes;;
+esac
+
+# DIRCOLORS + ALIASES BASE
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+
+    if command -v lsd >/dev/null 2>&1; then
+        alias ls='lsd'
+    else
+        alias ls='ls --color=auto'
+    fi
+
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
+fi
+
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+
+alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
+
+# BASH ALIASES EXTERNOS
+[ -f ~/.bash_aliases ] && . ~/.bash_aliases
+
+# BASH COMPLETION
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+
+#┌-o─o--o─o--o─o-o─o-o─o-o─o-o─o-o─o-o─o-o─o-┐
+#│       CONFIG CUSTOM KAPELU (v3.0)         │
+#└-o─o--o─o--o─o-o─o-o─o-o─o-o─o-o─o-o─o-o─o-┘
+
+# PATH scripts
+SCRIPT_DIR="$HOME/script"
+[ -d "$SCRIPT_DIR" ] || mkdir -p "$SCRIPT_DIR"
+
+case ":$PATH:" in
+  *":$SCRIPT_DIR:"*) ;;
+  *) export PATH="$PATH:$SCRIPT_DIR" ;;
+esac
+
+# chmod inteligente (sin watchers)
+find "$SCRIPT_DIR" -type f \( -name "*.sh" -o ! -name "*.*" \) \
+  -exec grep -Iq "^#!.*bash" {} \; \
+  -exec chmod +x {} \;
+
+# CACHE
+__LAST_PWD=""
+__PKG_MANAGER=""
+__GIT_BRANCH=""
+
+# BUSCAR package.json HACIA ARRIBA
+find_package_json_upwards() {
+  local dir="$PWD"
+  while [ "$dir" != "/" ]; do
+    [ -f "$dir/package.json" ] && { echo "$dir/package.json"; return; }
+    dir=$(dirname "$dir")
+  done
+}
+
+# DETECTAR PACKAGE MANAGER (robusto)
+detect_package_manager() {
+  local pkg_json manager dir="$PWD"
+
+  pkg_json=$(find_package_json_upwards)
+
+  if [ -n "$pkg_json" ]; then
+    if command -v jq >/dev/null 2>&1; then
+      manager=$(jq -r '.packageManager // empty' "$pkg_json" 2>/dev/null | cut -d@ -f1)
+    else
+      manager=$(grep -o '"packageManager"[[:space:]]*:[[:space:]]*"[^"]*"' "$pkg_json" \
+        | sed -E 's/.*"([^"]+)".*/\1/' | cut -d@ -f1)
+    fi
+    [ -n "$manager" ] && { echo "$manager"; return; }
+  fi
+
+  while [ "$dir" != "/" ]; do
+    [ -f "$dir/pnpm-lock.yaml" ] && { echo "pnpm"; return; }
+    [ -f "$dir/yarn.lock" ] && { echo "yarn"; return; }
+    [ -f "$dir/package-lock.json" ] && { echo "npm"; return; }
+    dir=$(dirname "$dir")
+  done
+
+  echo "npm"
+}
+
+# ENSURE PNPM
+ensure_pnpm() {
+  command -v pnpm >/dev/null 2>&1 && return
+
+  local dir="$PWD"
+  while [ "$dir" != "/" ]; do
+    [ -f "$dir/pnpm-lock.yaml" ] && {
+      echo "📦 Instalando pnpm..."
+      npm install -g pnpm >/dev/null 2>&1
+      return
+    }
+    dir=$(dirname "$dir")
+  done
+}
+
+# RUNNER UNIVERSAL
+runpkg() {
+  local gestor
+  gestor=$(detect_package_manager)
+  ensure_pnpm
+  command "$gestor" "$@"
+}
+
+# GIT PROMPT OPTIMIZADO
+git_prompt_status() {
+  git rev-parse --is-inside-work-tree &>/dev/null || return
+
+  local branch dirty ahead behind
+  branch=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse --short HEAD)
+
+  # Cambios locales reales
+  if ! git diff --quiet --ignore-submodules --cached || ! git diff --quiet --ignore-submodules; then
+    dirty=1
+  fi
+
+  # Conflictos
+  if git ls-files -u | grep -q .; then
+    printf "\033[38;5;196m[%s]\033[0m" "$branch"  # 🔴 conflictos
+    return
+  fi
+
+  # Ahead / Behind respecto al upstream
+  if git rev-parse --abbrev-ref @{u} &>/dev/null; then
+    read ahead behind < <(git rev-list --left-right --count HEAD...@{u})
+  else
+    ahead=0
+    behind=0
+  fi
+
+  if [ "$dirty" = "1" ]; then
+    printf "\033[38;5;220m[%s]\033[0m" "$branch"      # 🟡 cambios locales
+  elif [ "$ahead" -gt 0 ] || [ "$behind" -gt 0 ]; then
+    printf "\033[38;5;33m[%s]\033[0m" "$branch"       # 🔵 no sincronizado (push/pull)
+  else
+    printf "\033[38;5;82m[%s]\033[0m" "$branch"       # 🟢 limpio y sincronizado
+  fi
+}
+# CACHE PROMPT (sin overhead)
+update_prompt_cache() {
+  local manager
+  manager=$(detect_package_manager)
+  __PKG_MANAGER=$([ -n "$manager" ] && echo "[$manager]" || echo "")
+  __GIT_BRANCH="$(git_prompt_status)"
+}
+
+PROMPT_COMMAND=update_prompt_cache
+
+# PROMPT FINAL
+if [ "$EUID" -eq 0 ]; then
+    HOST_COLOR='\[\033[01;31m\]'  # rojo
+else
+    HOST_COLOR='\[\033[01;32m\]'  # verde
+fi
+
+PS1=" ${HOST_COLOR}\h:\[\033[01;34m\]\${__PKG_MANAGER}\${__GIT_BRANCH} \[\033[00m\]\w \[\033[01;34m\]\\$ \[\033[00m\]"
+
+# TÍTULO XTERM (se mantiene)
+case "$TERM" in
+xterm*|rxvt*)
+    PS1="\[\e]0;${__PKG_MANAGER}${__GIT_BRANCH}kapelu \w\a\]$PS1"
+    ;;
+*)
+    ;;
+esac
+
+# NVM
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+EOF
+}
+
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║            CONFIGURACIONES UI         ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+logo() {
+  {
+    printf "%b%-40s%b\n" "${COLOR[ok]}"
+    printf " ${COLOR[green_gray]}/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/                                                           / \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \  ${COLOR[yellow_gray]}██   ██  █████   █████  █████  ██████  ██    ██  █████${COLOR[green_gray]}   \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/  ${COLOR[yellow_gray]}██  ██   ██  ██  ██     ██       ██    ██    ██  ██  ██${COLOR[green_gray]}  / \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \  ${COLOR[yellow_gray]}█████    █████   █████  ████     ██    ██    ██  █████${COLOR[green_gray]}   \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/  ${COLOR[yellow_gray]}██  ██   ██         ██  ██       ██     ██  ██   ██${COLOR[green_gray]}      / \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \  ${COLOR[yellow_gray]}██   ██  ██      █████  █████    ██      ████    ██${COLOR[green_gray]}      \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/                                                          _/ \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/\_/ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \/ \ ${COLOR[reset]}\n"
+    printf " ${COLOR[green_gray]}\_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/ \_/\_/ ${COLOR[reset]}\n"
+
+    printf "%b%-40s%b\n" "${COLOR[reset]}"
+  } >&3
+}
+print_banner() {
+  local msg="$1"
+  # PANTALLA
+  {
+    printf "%b%-40s%b\n" "	${COLOR[warn]}════════════════════════════════════════════════════${COLOR[reset]}"
+    printf "%b%-40s%b\n" "$msg"
+    printf "%b%-40s%b\n" "	${COLOR[warn]}════════════════════════════════════════════════════${COLOR[reset]}"
+    printf "\n"
+  } >&3
+  
+  # .LOG
+  {
+    printf "====================================================\n"
+    printf "%s\n" "$msg"
+    printf "====================================================\n\n"
+  } >> "$LOG_FILE"
+}
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║           FUNCIONES CORE              ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+#* Valida si la distro es UBUNTU
+VALIDAR_DISTRO() {
+  log_print info "Validando distribución..."
+
+  if [[ -r /etc/os-release ]]; then
+    . /etc/os-release
+  else
+    log_print ERROR "No se pudo leer /etc/os-release"
+    print_banner "⛔ No se pudo detectar la Distro"
+    exit 1
+  fi
+
+  log_print OK "ID=$ID VERSION_ID=$VERSION_ID ID_LIKE=$ID_LIKE"
+
+  case "$ID" in
+    ubuntu)
+      case "$VERSION_ID" in
+        24.*|26.*)
+          log_print OK "Ubuntu compatible: $VERSION_ID"
+          ;;
+        *)
+          clear
+          print_banner "⛔ Ubuntu no soportado: $VERSION_ID"
+          exit 1
+          ;;
+      esac
+      ;;
+      
+    debian)
+      case "$VERSION_ID" in
+        12|13)
+          log_print OK "Debian compatible: $VERSION_ID"
+          ;;
+        *)
+          clear
+          print_banner "⛔ Debian no soportado: $VERSION_ID"
+          exit 1
+          ;;
+      esac
+      ;;
+      
+    *)
+      # fallback usando ID_LIKE (más robusto)
+      if [[ "$ID_LIKE" =~ debian ]]; then
+        log_print WARN "Distro derivada detectada ($ID), tratada como Debian-like"
+      else
+        clear
+        print_banner "⛔ Distro no soportada: $ID"
+        exit 1
+      fi
+      ;;
+  esac
+
+  log_print info "Sistema validado correctamente"
+}
+
+#* Funcion que actualiza APT
+UPDATE() {
+  log_print info "Actualizando sistema..."
+
+  export DEBIAN_FRONTEND=noninteractive
+  export NEEDRESTART_MODE=a
+  export APT_LISTCHANGES_FRONTEND=none
+
+  echo "code code/add-microsoft-repo boolean true" | sudo debconf-set-selections
+
+  log_print info "PASO 1: apt update"
+  if ! $SUDO apt-get update -y; then
+    log_print verifail "Error en apt-get update"
+    return 1
+  fi
+  log_print info "PASO 2: dist-upgrade"
+  if ! $SUDO -E apt-get \
+    -y \
+    -o Dpkg::Options::="--force-confdef" \
+    -o Dpkg::Options::="--force-confold" \
+    -o Dpkg::Use-Pty=0 \
+    dist-upgrade; then
+
+    log_print error "Error en dist-upgrade"
+    return 1
+  fi
+  log_print info "PASO 3: autoremove"
+  # Limpieza del sistema
+  if ! $SUDO apt-get autoremove -y; then
+    log_print warn "Error en autoremove"
+  fi
+  log_print info "PASO 4: autoclean"
+  if ! $SUDO apt-get autoclean -y; then
+    log_print warn "Error en autoclean"
+  fi
+
+  log_print ok "Sistema actualizado correctamente."
+}
+
+#* Funcion de limpieza del sistema
+CLEAN_SYSTEM() {
+    log_print info "🧹 Iniciando limpieza del sistema..."
+    # Limpiar paquetes innecesarios
+    log_print ok "➤ Eliminando paquetes huérfanos..."
+    $SUDO apt-get autoremove -y
+    # Limpiar caché de paquetes descargados
+    log_print ok "➤ Limpiando caché de APT..."
+    $SUDO apt-get clean
+    $SUDO apt-get autoclean
+    # Limpiar logs antiguos
+    log_print ok "➤ Limpiando logs antiguos..."
+    $SUDO journalctl --vacuum-time=7d
+    # Limpiar miniaturas (thumbnails)
+    log_print ok "➤ Eliminando caché de miniaturas..."
+    $SUDO rm -rf "$USER_HOME/.cache/thumbnails/"*
+    # Limpiar caché de usuario
+    log_print ok "➤ Limpiando caché del usuario..."
+    rm -rf "$USER_HOME/.cache/"*
+    # Limpiar paquetes snap si existen
+    if command -v snap >/dev/null 2>&1; then
+        log_print ok "➤ Limpiando versiones antiguas de Snap..."
+        snap list --all | awk '/disabled/{print $1, $3}' | while read snapname revision; do
+            snap remove "$snapname" --revision="$revision"
+        done
+    fi
+		# Eliminar paquetes en estado "rc" (residuos de configs)
+		log_print ok "➤ Eliminando paquetes residuales..."
+		dpkg -l | awk '/^rc/ { print $2 }' | xargs -r $SUDO apt-get purge -y
+    log_print ok " Limpieza completada."
+		sleep 3
+}
+#* Función full update que llama a update_system y agrega Snap, Flatpak y firmware
+FULL_UPDATE() {
+  UPDATE || return 1
+
+  # Snap
+  if command -v snap >/dev/null 2>&1 && systemctl is-active --quiet snapd; then
+    log_print info "➤ Actualizando paquetes Snap..."
+    $SUDO snap refresh || log_print warn "Snap refresh falló"
+  fi
+
+  # Flatpak
+  if command -v flatpak >/dev/null 2>&1; then
+    if flatpak remotes | grep -q .; then
+      log_print info "➤ Actualizando paquetes Flatpak..."
+      $SUDO flatpak update -y || log_print warn "Flatpak update falló"
+    else
+      log_print warn "Flatpak sin repos configurados"
+    fi
+  fi
+
+  # Firmware
+  if [ -d /sys/firmware/efi ] && command -v fwupdmgr >/dev/null 2>&1; then
+    log_print info "➤ Actualizando firmware (UEFI)..."
+    $SUDO fwupdmgr refresh --force || log_print warn "fwupdmgr refresh falló"
+    $SUDO fwupdmgr update -y || log_print warn "fwupdmgr update falló"
+  else
+    log_print warn "➤ Sistema en modo Legacy BIOS o fwupdmgr no disponible"
+  fi
+
+  log_print ok "Actualización completa finalizada."
+}
+
+#* PERSONALIZE_UBUNTU: Función que personaliza Escritorio y temas visuales, energia, dock y seguridad
+PERSONALIZE_UBUNTU() {
+  log_print info "Personalizando .bashrc"
+
+  # USER
+  rebuild_bashrc "$USER_HOME/.bashrc"
+
+  chown "$REAL_USER:$REAL_USER" "$USER_HOME/.bashrc"
+
+  # ROOT
+  if [ "$(id -u)" -eq 0 ]; then
+    rebuild_bashrc "$ROOT_HOME/.bashrc"
+    chown root:root "$ROOT_HOME/.bashrc"
+  else
+    sudo bash -c "$(declare -f versioned_write rebuild_bashrc); rebuild_bashrc '$ROOT_HOME/.bashrc'"
+    sudo chown root:root "$ROOT_HOME/.bashrc"
+  fi
+
+  # RECARGA
+  if [ -n "${REAL_USER:-}" ] && [ "$REAL_USER" != "root" ]; then
+  sudo -u "$REAL_USER" bash -c "source ~/.bashrc"
+  fi
+
+  log_print ok "✔ Personalización completa"
+}
+
+#* INSTALL_SNAP: Instala paquetes snap declarados en SNAP_TOOLS
+INSTALL_SNAP(){
+  log_print info "Instalando paquetes snap desde SNAP_TOOLS..."
+
+  if ! command -v snap >/dev/null 2>&1; then
+    log_print warn "snap no está instalado. Instalando snapd..."
+    #$SUDO apt-get update -y
+    $SUDO apt-get install -y snapd
+    $SUDO systemctl enable --now snapd
+    ln -sf /var/lib/snapd/snap /snap
+  else
+    log_print ok "snap disponible"
+  fi
+
+  log_print info "Obteniendo lista de snaps instalados..."
+  local installed
+  installed="$(snap list | awk 'NR>1{print $1}')"
+
+  local pkg pkg_name
+  for pkg in "${SNAP_TOOLS[@]}"; do
+    # Extrae solo el nombre del paquete (primer palabra)
+    pkg_name="${pkg%% *}"
+
+    if echo "$installed" | grep -qx "$pkg_name"; then
+      log_print ok "$pkg_name ya está instalado"
+    else
+      log_print info "Instalando $pkg..."
+      if $SUDO snap install "${args[@]}"; then
+        log_print ok "$pkg_name instalado ✔"
+      else
+       log_print error "Error instalando $pkg_name"
+      fi
+    fi
+  done
+
+  log_print ok "Instalación de paquetes SNAP finalizado"
+}
+#* INSTALL_APT: Instala paquetes usando APT_TOOLS
+INSTALL_APT() {
+  local pkg
+  log_print info "Instalando paquetes desde APT_TOOLS..."
+
+  for pkg in "${APT_TOOLS[@]}"; do
+    if ! dpkg -s "$pkg" &>/dev/null; then
+      log_print run "Instalando paquete: $pkg..."
+      
+      if ! $SUDO apt-get install -y "$pkg"; then
+        log_print warn "Paquete defectuoso: $pkg. Intentando desinstalar..."
+        $SUDO apt-get remove -y "$pkg" 2>/dev/null
+      else
+        log_print ok "Instalado correctamente: $pkg"
+      fi
+    else
+      log_print info "Ya está instalado: $pkg"
+    fi
+  done
+  log_print ok "Instalación de pauqetes APT finalizado"
+}
+#* INSTALL_BRAVE: Instala Brave
+INSTALL_BRAVE() {
+  log_print run "Instalando Brave Browser..."
+
+  # Asegurar curl
+  if ! dpkg -s curl &>/dev/null; then
+    log_print run "Instalando dependencia: curl..."
+    if ! $SUDO apt-get update -y; then
+      log_print warn "Fallo en apt-get update"
+      return 1
+    fi
+    if ! $SUDO apt-get install -y curl; then
+      log_print warn "No se pudo instalar curl"
+      return 1
+    fi
+  fi
+
+  # Limpieza previa (clave para evitar conflicto Signed-By)
+  log_print run "Limpiando configuraciones previas de Brave..."
+  $SUDO rm -f /etc/apt/sources.list.d/brave-browser*
+  $SUDO rm -f /usr/share/keyrings/brave-browser-archive-keyring.gpg
+  $SUDO rm -f /etc/apt/keyrings/brave-browser-archive-keyring.gpg
+
+  # Keyrings
+  if ! $SUDO mkdir -p /usr/share/keyrings; then
+    log_print warn "Error creando directorio keyrings"
+    return 1
+  fi
+
+  log_print run "Descargando keyring de Brave..."
+  if ! curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg \
+    | $SUDO tee /usr/share/keyrings/brave-browser-archive-keyring.gpg > /dev/null; then
+    log_print warn "Error descargando keyring"
+    return 1
+  fi
+
+	# Repo
+  log_print run "Agregando repositorio Brave..."
+  if ! curl -fsSL https://brave-browser-apt-release.s3.brave.com/brave-browser.sources \
+    | $SUDO tee /etc/apt/sources.list.d/brave-browser-release.sources > /dev/null; then
+    log_print warn "Error agregando repositorio"
+    return 1
+  fi
+
+  log_print run "Actualizando repositorios..."
+  if ! $SUDO apt-get update -y; then
+    log_print warn "Fallo en apt-get update"
+    return 1
+  fi
+
+  # Update + install
+  log_print run "Instalando brave-browser..."
+  if ! $SUDO apt-get install -y brave-browser; then
+    log_print warn "No se pudo instalar Brave"
+    return 1
+  fi
+
+  log_print ok "Brave instalado correctamente"
+	log_print ok "Versión" brave-browser --version
+}
+#* INSTALL_GOOGLE: Instala Google Chrome
+INSTALL_GOOGLE() {
+  log_print run "Instalación de Google Chrome..."
+
+  $SUDO rm -f /etc/apt/sources.list.d/google-chrome.list
+  $SUDO rm -f /etc/apt/keyrings/google-chrome.gpg
+
+  log_print run "Agregando clave oficial (keyring)..."
+
+  if ! $SUDO mkdir -p /etc/apt/keyrings; then
+    log_print warn "Error creando keyrings"
+    return 1
+  fi
+
+  if ! curl -fsSL https://dl.google.com/linux/linux_signing_key.pub \
+    | gpg --dearmor | $SUDO tee /etc/apt/keyrings/google-chrome.gpg > /dev/null; then
+    log_print warn "Error importando clave"
+    return 1
+  fi
+
+  if ! $SUDO chmod 644 /etc/apt/keyrings/google-chrome.gpg; then
+    log_print warn "Error en permisos del keyring"
+    return 1
+  fi
+
+  log_print run "Agregando repositorio..."
+  if ! echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+    | $SUDO tee /etc/apt/sources.list.d/google-chrome.list > /dev/null; then
+    log_print warn "Error agregando repo"
+    return 1
+  fi
+
+  log_print run "Actualizando repositorios..."
+  if ! $SUDO apt-get update; then
+    log_print warn "Fallo en apt-get update"
+    return 1
+  fi
+
+  log_print run "Instalando Google Chrome..."
+  if ! $SUDO apt-get install -y google-chrome-stable; then
+    log_print warn "No se pudo instalar Chrome"
+    return 1
+  fi
+
+  log_print ok "Google Chrome instalado correctamente"
+	log_print ok "Versión" google-chrome --version
+}
+#* REMOVE_FIREFOX: Desintala completamente Firefox del sistema, sin dejar residuos.
+REMOVE_FIREFOX(){
+  log_print info "Detectando instalación de Firefox..."
+
+  local found=false
+
+  # --- SNAP ---
+  if command -v snap >/dev/null 2>&1 && snap list 2>/dev/null | grep -q "^firefox"; then
+    log_print info "Firefox detectado como SNAP"
+    snap remove --purge firefox
+    $SUDO rm -rf /var/snap/firefox /var/lib/snapd/snaps/firefox*
+    found=true
+  fi
+
+  # --- APT ---
+  if dpkg -s firefox >/dev/null 2>&1; then
+    log_print info "Firefox detectado como paquete APT"
+    $SUDO apt-get purge -y firefox
+    $SUDO apt-get autoremove -y --purge
+    $SUDO rm -f /etc/apt/sources.list.d/*firefox*
+    found=true
+  fi
+
+  # --- FLATPAK ---
+  if command -v flatpak >/dev/null 2>&1 && flatpak list 2>/dev/null | grep -q "org.mozilla.firefox"; then
+    log_print info "Firefox detectado como FLATPAK"
+    flatpak uninstall -y org.mozilla.firefox --delete-data
+    $SUDO rm -rf /var/lib/flatpak/app/org.mozilla.firefox
+    found=true
+  fi
+
+  if [ "$found" = false ]; then
+    log_print warn "Firefox no está instalado por apt, snap ni flatpak"
+  fi
+
+  log_print info "Eliminando residuos..."
+
+  # --- USERS ---
+  local dir
+  for dir in /home/* /root; do
+    $SUDO rm -rf "$dir/.mozilla" \
+                  "$dir/.cache/mozilla" \
+                  "$dir/.config/firefox"
+  done
+
+  # --- BINARIOS ---
+  $SUDO rm -f /usr/bin/firefox /usr/local/bin/firefox
+
+  # --- SYSTEM ---
+  $SUDO rm -rf /usr/lib/firefox \
+          /usr/lib/firefox-esr \
+          /usr/share/firefox \
+          /etc/firefox
+
+  log_print ok "Firefox eliminado completamente"
+}
+#* INSTALL_NODE: NVM + Node LTS + npm + pnpm
+INSTALL_NODE() {
+	log_print run "Instalando Node.js (NVM)..."
+	local NVM_DIR="$USER_HOME/.nvm"
+	local NVM_SCRIPT="$NVM_DIR/nvm.sh"
+	# Limpieza previa (opcional, podés comentar si no querés reinstalar)
+	if [ -d "$NVM_DIR" ]; then
+		log_print warn "NVM ya existe, se reutilizará instalación"
+	fi
+	# Descargar e instalar NVM
+	log_print run "Descargando e instalando NVM..."
+	if ! curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash; then
+		log_print error "Error instalando NVM"
+		return 1
+	fi
+	# Cargar NVM en la sesión actual
+	log_print run "Cargando entorno NVM..."
+	if [ -s "$NVM_SCRIPT" ]; then
+		# shellcheck disable=SC1090
+		\. "$NVM_SCRIPT"
+	else
+		log_print error "No se encontró nvm.sh"
+		return 1
+	fi
+	# Instalar Node LTS (v24)
+	log_print run "Instalando Node.js v24..."
+	if ! nvm install 24; then
+		log_print error "Error instalando Node.js"
+		return 1
+	fi
+	if ! nvm use 24; then
+		log_print error "Error activando Node.js"
+		return 1
+	fi
+	# Verificar Node
+	if ! command -v node >/dev/null 2>&1; then
+		log_print error "Node no disponible"
+		return 1
+	fi
+	log_print run "Configurando entorno Node en .bashrc..."
+	local BASHRC="$USER_HOME/.bashrc"
+	if ! grep -q "NVM_DIR" "$BASHRC"; then
+		cat <<EOF >> "$BASHRC"
+		# NVM
+		export NVM_DIR="\$HOME/.nvm"
+		[ -s "\$NVM_DIR/nvm.sh" ] && \. "\$NVM_DIR/nvm.sh"
+		# PNPM
+		export PNPM_HOME="\$HOME/.local/share/pnpm"
+		export PATH="\$PNPM_HOME:\$PATH"
+EOF
+  fi
+
+  log_print ok "Entorno Node agregado a .bashrc"
+
+  # Activar corepack (incluye pnpm y yarn)
+  log_print run "Activando corepack..."
+  if ! corepack enable; then
+    log_print error "Error activando corepack"
+    return 1
+  fi
+
+  # Instalar última versión de pnpm
+  log_print run "Instalando pnpm..."
+  if ! corepack prepare pnpm@latest --activate; then
+    log_print error "Error instalando pnpm"
+    return 1
+  fi
+
+  # Verificar pnpm
+  if ! command -v pnpm >/dev/null 2>&1; then
+    log_print error "pnpm no disponible"
+    return 1
+  fi
+
+  # Actualizar npm a latest
+  log_print run "Actualizando npm..."
+  if ! npm install -g npm@latest; then
+    log_print error "Error actualizando npm"
+    return 1
+  fi
+
+  log_print ok "Node.js + pnpm + npm listos"
+	log_print ok "Node instalado: $(node -v)"
+  log_print ok "npm instalado: $(npm -v)"
+  log_print ok "pnpm instalado: $(pnpm -v)"
+}
+#* INSTALL_CODE: Instala vscode desde el repositorio de APT
+INSTALL_CODE() {
+  log_print RUN "Instalando Visual Studio Code..."
+
+  local KEYRING="/etc/apt/keyrings/microsoft.gpg"
+  local SOURCE_LIST="/etc/apt/sources.list.d/vscode.list"
+
+  # --- Limpieza previa ---
+  log_print info "Limpiando instalaciones previas..."
+
+  if ! $SUDO rm -f "$SOURCE_LIST"; then
+    log_print ERROR "No se pudo eliminar $SOURCE_LIST"
+    return 1
+  fi
+
+  if ! $SUDO rm -f "$KEYRING"; then
+    log_print ERROR "No se pudo eliminar $KEYRING"
+    return 1
+  fi
+
+  # --- Actualización inicial ---
+  log_print RUN "Actualizando índices de paquetes"
+
+  if ! $SUDO apt-get update -y; then
+    log_print ERROR "apt update falló"
+    return 1
+  fi
+
+  # --- Dependencias ---
+  log_print RUN "Instalando dependencias necesarias"
+
+  if ! $SUDO apt-get install -y wget gpg apt-transport-https; then
+    log_print ERROR "Error instalando dependencias"
+    return 1
+  fi
+
+  # --- Keyring ---
+  log_print RUN "Creando directorio keyrings"
+
+  if ! $SUDO mkdir -p /etc/apt/keyrings; then
+    log_print ERROR "Error creando /etc/apt/keyrings"
+    return 1
+  fi
+
+  log_print RUN "Importando clave GPG de Microsoft"
+
+  if ! wget -qO- https://packages.microsoft.com/keys/microsoft.asc \
+    | gpg --dearmor \
+    | $SUDO tee "$KEYRING" > /dev/null; then
+    log_print ERROR "No se pudo importar la clave GPG"
+    return 1
+  fi
+
+  if ! $SUDO chmod 644 "$KEYRING"; then
+    log_print ERROR "No se pudieron asignar permisos al keyring"
+    return 1
+  fi
+
+  # --- Repositorio ---
+  log_print RUN "Agregando repositorio oficial de VS Code"
+
+  if ! echo "deb [arch=$(dpkg --print-architecture) signed-by=$KEYRING] https://packages.microsoft.com/repos/vscode stable main" \
+    | $SUDO tee "$SOURCE_LIST" > /dev/null; then
+    log_print ERROR "No se pudo agregar el repositorio"
+    return 1
+  fi
+
+  # --- Actualización repositorios ---
+  log_print RUN "Actualizando repositorios"
+
+  if ! $SUDO apt-get update -y; then
+    log_print ERROR "apt update falló"
+    return 1
+  fi
+
+  # --- Instalación VSCode ---
+  log_print RUN "Instalando Visual Studio Code"
+
+  if ! DEBIAN_FRONTEND=noninteractive \
+     $SUDO -E apt-get install -y \
+     -o Dpkg::Options::="--force-confdef" \
+     -o Dpkg::Options::="--force-confold" \
+     code; then
+    log_print ERROR "Error instalando VS Code"
+    return 1
+  fi
+
+  # --- Verificación comando code ---
+  log_print RUN "Verificando comando 'code'"
+
+  if ! command -v code >/dev/null 2>&1; then
+    log_print info "El binario no está en el PATH"
+
+    if [ -x /usr/bin/code ]; then
+      log_print RUN "Creando symlink de /usr/local/bin/code"
+
+      if ! $SUDO ln -sf /usr/bin/code /usr/local/bin/code; then
+        log_print ERROR "No se pudo crear el symlink"
+        return 1
+      fi
+    else
+      log_print ERROR "No existe /usr/bin/code"
+      return 1
+    fi
+  fi
+
+  # --- Verificación final ---
+  if command -v code >/dev/null 2>&1; then
+    local CODE_VERSION
+    CODE_VERSION="$(code --version | head -n1)"
+
+    log_print OK "VS Code instalado correctamente"
+    log_print OK "Versión: ${CODE_VERSION}"
+  else
+    log_print ERROR "El comando 'code' sigue sin funcionar"
+    return 1
+  fi
+}
+
+#* INSTALL_SUBLIME-TEXT: Instala sublime-text desde el repositorio oficial APT
+INSTALL_SUBLIME-TEXT() {
+  log_print RUN "Instalando Sublime Text..."
+
+  local KEYRING="/etc/apt/keyrings/sublimehq-pub.gpg"
+  local SOURCE_LIST="/etc/apt/sources.list.d/sublime-text.list"
+
+  # --- Limpieza previa ---
+  log_print info "Limpiando instalaciones previas..."
+
+  if ! $SUDO rm -f "$SOURCE_LIST"; then
+    log_print ERROR "No se pudo eliminar $SOURCE_LIST"
+    return 1
+  fi
+
+  if ! $SUDO rm -f "$KEYRING"; then
+    log_print ERROR "No se pudo eliminar $KEYRING"
+    return 1
+  fi
+
+  # --- Actualización inicial ---
+  log_print RUN "Actualizando índices de paquetes"
+
+  if ! $SUDO apt-get update -y; then
+    log_print ERROR "apt update falló"
+    return 1
+  fi
+
+  # --- Dependencias ---
+  log_print RUN "Instalando dependencias necesarias"
+
+  if ! $SUDO apt-get install -y wget gpg apt-transport-https ca-certificates; then
+    log_print ERROR "Error instalando dependencias"
+    return 1
+  fi
+
+  # --- Directorio keyrings ---
+  log_print RUN "Creando directorio keyrings"
+
+  if ! $SUDO mkdir -p /etc/apt/keyrings; then
+    log_print ERROR "Error creando /etc/apt/keyrings"
+    return 1
+  fi
+
+  # --- Importar clave GPG ---
+  log_print RUN "Importando clave GPG de Sublime Text"
+
+  if ! wget -qO- https://download.sublimetext.com/sublimehq-pub.gpg \
+    | gpg --dearmor \
+    | $SUDO tee "$KEYRING" > /dev/null; then
+    log_print ERROR "No se pudo importar la clave GPG"
+    return 1
+  fi
+
+  if ! $SUDO chmod 644 "$KEYRING"; then
+    log_print ERROR "No se pudieron asignar permisos al keyring"
+    return 1
+  fi
+
+  # --- Repositorio ---
+  log_print RUN "Agregando repositorio oficial de Sublime Text"
+
+  if ! echo "deb [signed-by=$KEYRING] https://download.sublimetext.com/ apt/stable/" \
+    | $SUDO tee "$SOURCE_LIST" > /dev/null; then
+    log_print ERROR "No se pudo agregar el repositorio"
+    return 1
+  fi
+
+  # --- Actualización repositorios ---
+  log_print RUN "Actualizando repositorios"
+
+  if ! $SUDO apt-get update -y; then
+    log_print ERROR "apt update falló"
+    return 1
+  fi
+
+  # --- Instalación Sublime Text ---
+  log_print RUN "Instalando Sublime Text"
+
+  if ! $SUDO apt-get install -y sublime-text; then
+    log_print ERROR "Error instalando Sublime Text"
+    return 1
+  fi
+
+  # --- Verificación comando subl ---
+  log_print RUN "Verificando comando 'subl'"
+
+  if ! command -v subl >/dev/null 2>&1; then
+    log_print info "El binario no está en el PATH"
+
+    if [ -x /opt/sublime_text/sublime_text ]; then
+      log_print RUN "Creando symlink de /usr/local/bin/subl"
+
+      if ! $SUDO ln -sf /opt/sublime_text/sublime_text /usr/local/bin/subl; then
+        log_print ERROR "No se pudo crear el symlink"
+        return 1
+      fi
+    else
+      log_print ERROR "No existe /opt/sublime_text/sublime_text"
+      return 1
+    fi
+  fi
+
+  # --- Verificación final ---
+  if command -v subl >/dev/null 2>&1; then
+    local SUBL_VERSION
+    SUBL_VERSION="$(subl --version 2>/dev/null | head -n1)"
+		$SUDO cp /opt/sublime_text/sublime_text /opt/sublime_text/sublime_text.bak
+		$SUDO sed -i 's/\x0F\xB6\x51\x05\x83\xF2\x01/\xC6\x41\x05\x01\xB2\x00\x90/' /opt/sublime_text/sublime_text
+
+    log_print OK "Sublime Text instalado correctamente"
+    log_print OK "Versión: ${SUBL_VERSION}"
+  else
+    log_print ERROR "El comando 'subl' sigue sin funcionar"
+    return 1
+  fi
+}
+
+#* INSTALL_DOCKER: Instala Docker desde el repositorio de APT
+INSTALL_DOCKER() {
+  log_print RUN "🐳 Instalando Docker..."
+
+  log_print info "Actualizando índices de paquetes"
+  $SUDO apt-get update
+
+  log_print info "Instalando dependencias necesarias"
+  $SUDO apt-get install -y ca-certificates curl
+
+  log_print info "Creando directorio de keyrings"
+  $SUDO install -m 0755 -d /etc/apt/keyrings
+
+  log_print info "Descargando clave GPG oficial de Docker"
+  $SUDO curl -fsSL https://download.docker.com/linux/ubuntu/gpg \
+    -o /etc/apt/keyrings/docker.asc
+
+  log_print info "Asignando permisos a la clave"
+  $SUDO chmod a+r /etc/apt/keyrings/docker.asc
+
+  log_print info "Agregando repositorio oficial de Docker"
+  $SUDO tee /etc/apt/sources.list.d/docker.sources > /dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/ubuntu
+Suites: $(. /etc/os-release && echo "${UBUNTU_CODENAME:-$VERSION_CODENAME}")
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+
+  log_print info "Actualizando índices con el nuevo repositorio"
+  $SUDO apt update
+
+  log_print info "Instalando Docker"
+  $SUDO apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+  log_print info "Verificando estado del servicio Docker"
+  if ! systemctl is-active --quiet docker; then
+    print "⚠️ Docker no está activo. Iniciando servicio..."
+    $SUDO systemctl start docker
+  fi
+
+  log_print info "Mostrando estado de Docker"
+  $SUDO systemctl status docker --no-pager
+
+  log_print info "Ejecutando contenedor de prueba hello-world"
+  $SUDO docker run hello-world
+	sleep 10
+  log_print OK "✅ Docker instalado correctamente"
+}
+
+#* INSTALL_PROTONVPN: Instala protonVPN desde el repositorio de APT
+INSTALL_PROTONVPN() {
+  log_print info "Instalando Proton VPN (APT repo oficial)..."
+
+  local TMP_DEB="/tmp/protonvpn-stable-release.deb"
+  local EXPECTED_SHA="0b14e71586b22e498eb20926c48c7b434b751149b1f2af9902ef1cfe6b03e180"
+
+  # --- LIMPIEZA PREVIA ---
+  log_print info "Limpiando instalaciones previas..."
+  $SUDO apt-get purge -y protonvpn protonvpn-cli proton-vpn-gnome-desktop || true
+  $SUDO rm -f /etc/apt/sources.list.d/protonvpn*.list
+  $SUDO rm -f /etc/apt/sources.list.d/protonvpn*.sources
+  $SUDO rm -f /usr/share/keyrings/protonvpn* 2>/dev/null || true
+
+  # --- DESCARGA ---
+  log_print info "Descargando paquete del repositorio..."
+  wget -q -O "$TMP_DEB" \
+    https://repo.protonvpn.com/debian/dists/stable/main/binary-all/protonvpn-stable-release_1.0.8_all.deb
+
+  # --- VERIFICACIÓN SHA256 ---
+  log_print info "Verificando integridad del paquete..."
+  echo "${EXPECTED_SHA}  ${TMP_DEB}" | sha256sum --check --status
+  if [ $? -ne 0 ]; then
+    log_print ERROR "Checksum inválido. Abortando instalación."
+    $SUDO rm -f "$TMP_DEB"
+    return 1
+  fi
+
+  # --- INSTALACIÓN DEL REPO ---
+  log_print info "Instalando repositorio Proton VPN..."
+  $SUDO dpkg -i "$TMP_DEB"
+  $SUDO apt-get update
+
+  # --- INSTALACIÓN APP ---
+  log_print info "Instalando aplicación Proton VPN..."
+  $SUDO apt-get install -y proton-vpn-gnome-desktop
+
+  # --- OPCIONAL: TRAY ICON ---
+  log_print info "Instalando soporte para icono en bandeja (opcional)..."
+  $SUDO apt-get install -y gnome-shell-extension-appindicator gnome-shell-extension-prefs
+
+  # --- LIMPIEZA ---
+  $SUDO rm -f "$TMP_DEB"
+
+  log_print OK "Proton VPN instalado correctamente"
+}
+#* INSTALL_TIMESHIFT: Instala timeshift desde el repositorio de APT
+INSTALL_TIMESHIFT() {
+  log_print info "Instalando Timeshift desde repositorio oficial APT..."
+
+  # --- Limpiar residuos de PPA inválido ---
+  if ls /etc/apt/sources.list.d/teejee2008-ubuntu-ppa*.list >/dev/null 2>&1; then
+    log_print info "Eliminando PPA obsoleto de Timeshift..."
+    $SUDO rm -f /etc/apt/sources.list.d/teejee2008-ubuntu-ppa*.list
+  fi
+
+  # --- Actualizar índices ---
+  log_print info "Actualizando índices APT..."
+  $SUDO apt-get update -y || { log_print ERROR "$SUDO apt-get update falló"; return 1; }
+
+  # --- Instalar Timeshift desde repo oficial ---
+  log_print info "Instalando Timeshift..."
+  $SUDO apt-get install -y timeshift || { log_print ERROR "No se pudo instalar Timeshift"; return 1; }
+
+  # --- Verificación ---
+  if command -v timeshift >/dev/null 2>&1; then
+    log_print OK "Timeshift instalado correctamente"
+	log_print ok "Versión" timeshift --version
+  else
+    log_print ERROR "Timeshift no se encuentra después de la instalación"
+    return 1
+  fi
+}
+
+#* INSTALL_FOLIATE: Instala lector .epub desde el repositorio APT
+INSTALL_FOLIATE() {
+  log_print RUN "Instalando Foliate..."
+
+  if ! $SUDO apt update; then
+    log_print ERROR "No se pudo actualizar la lista de paquetes."
+    return 1
+  fi
+
+  if ! $SUDO apt install -y foliate; then
+    log_print ERROR "No se pudo instalar Foliate."
+    return 1
+  fi
+
+  log_print OK "Foliate instalado correctamente."
+}
+
+#//                  ╔-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╗
+#//                  ║            FUNCION MAIN()             ║
+#//                  ╚-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-╝
+main() {
+	START=$SECONDS
+  exec 3>&1
+  clear >&3
+  file_log
+  logo
+  printf "%s\n" ""
+  print_banner " 	   🚀 Iniciando Secuencia Post-Install..."
+  printf "%s\n" ""
+  VALIDAR_DISTRO
+  UPDATE
+  INSTALL_SNAP
+  INSTALL_APT
+  INSTALL_BRAVE
+  INSTALL_GOOGLE
+  REMOVE_FIREFOX
+  INSTALL_NODE
+  INSTALL_CODE
+	INSTALL_SUBLIME-TEXT
+	INSTALL_DOCKER
+  INSTALL_PROTONVPN
+  INSTALL_TIMESHIFT
+	INSTALL_FOLIATE
+  PERSONALIZE_UBUNTU
+  FULL_UPDATE
+	CLEAN_SYSTEM
+  TIEMPO_TOTAL="$(elapsed_time "$START")"
+  clear >&3
+  printf "%s\n" ""
+  clear >&3
+  print_banner "         🎉 Secuencia Post-Install completada con éxito!!!
+              Fecha: $(datetime date)
+              Hora de inicio: $START_INITIAL
+              Hora de fin   : $(datetime time)
+              Tiempo total  : $TIEMPO_TOTAL"
+  printf "            Presioná SPACE para continuar..." >&3
+  read -n 1 -s -r </dev/tty
+  rm -rf "$USER_HOME/temp"
+  clear >&3
+}
+
+main "$@"
