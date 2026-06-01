@@ -50,6 +50,7 @@ USER_HOME="$(getent passwd "$REAL_USER" | cut -d: -f6)"
 ROOT_HOME="/root"
 LOG_FILE="$USER_HOME/setup.log"
 START_INITIAL="$(date +"%H:%M:%S")"
+
 APT_TOOLS=(
 	software-properties-common
 	gnome-shell-extension-desktop-icons-ng
@@ -71,6 +72,7 @@ APT_TOOLS=(
 	libappindicator3-1
 	libayatana-appindicator3-1
 )
+
 SNAP_TOOLS=( 
   "jdownloader2"
   "sublime-text --classic"
@@ -97,6 +99,7 @@ declare -gA COLOR=(
   [green_gray]=$'\e[32;40m'    # verde brillante + fondo negro
   [yellow_gray]=$'\e[93;40m'   # amarillo brillante + fondo negro
 )
+
 # Iconos de .log
 ICON_INFO="🟢"
 ICON_OK="✅"
@@ -714,6 +717,7 @@ INSTALL_SNAP(){
 
   log_print ok "Instalación de paquetes SNAP finalizado"
 }
+
 #* INSTALL_APT: Instala paquetes usando APT_TOOLS
 INSTALL_APT() {
   local pkg
@@ -735,6 +739,7 @@ INSTALL_APT() {
   done
   log_print ok "Instalación de pauqetes APT finalizado"
 }
+
 #* INSTALL_BRAVE: Instala Brave
 INSTALL_BRAVE() {
   log_print run "Instalando Brave Browser..."
@@ -795,6 +800,7 @@ INSTALL_BRAVE() {
   log_print ok "Brave instalado correctamente"
 	log_print ok "Versión" brave-browser --version
 }
+
 #* INSTALL_GOOGLE: Instala Google Chrome
 INSTALL_GOOGLE() {
   log_print run "Instalación de Google Chrome..."
@@ -842,6 +848,7 @@ INSTALL_GOOGLE() {
   log_print ok "Google Chrome instalado correctamente"
 	log_print ok "Versión" google-chrome --version
 }
+
 #* REMOVE_FIREFOX: Desintala completamente Firefox del sistema, sin dejar residuos.
 REMOVE_FIREFOX(){
   log_print info "Detectando instalación de Firefox..."
@@ -898,6 +905,7 @@ REMOVE_FIREFOX(){
 
   log_print ok "Firefox eliminado completamente"
 }
+
 #* INSTALL_NODE: NVM + Node LTS + npm + pnpm
 INSTALL_NODE() {
 	log_print run "Instalando Node.js (NVM)..."
@@ -984,6 +992,7 @@ EOF
   log_print ok "npm instalado: $(npm -v)"
   log_print ok "pnpm instalado: $(pnpm -v)"
 }
+
 #* INSTALL_CODE: Instala vscode desde el repositorio de APT
 INSTALL_CODE() {
   log_print RUN "Instalando Visual Studio Code..."
